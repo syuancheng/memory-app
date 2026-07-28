@@ -1,0 +1,22 @@
+.DS_Store
+
+# Go
+backend/bin/
+
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/out/
+web/.env.local
+web/tsconfig.tsbuildinfo
+
+# Xcode
+ios/MemoryApp/build/
+ios/MemoryApp/DerivedData/
+ios/MemoryApp/xcuserdata/
+ios/MemoryApp/*.xcodeproj/xcuserdata/
+ios/MemoryApp/*.xcworkspace/xcuserdata/
+ios/MemoryApp/**/*.xcuserstate
+
+# Local env
+.env
