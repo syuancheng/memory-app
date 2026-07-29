@@ -1,0 +1,73 @@
+:root {
+  /* AppColor */
+  --app-color-bg: #f7f3ec;
+  --app-color-bg-elevated: #fbf8f1;
+  --app-color-surface: #fffdf8;
+  --app-color-surface-muted: #fbf6ed;
+  --app-color-surface-soft: #f2ebe0;
+  --app-color-text: #242925;
+  --app-color-text-muted: #737c75;
+  --app-color-text-subtle: #939a94;
+  --app-color-line: #e6ded2;
+  --app-color-line-strong: #d5ccbe;
+  --app-color-primary: #2f6f5e;
+  --app-color-primary-hover: #285d50;
+  --app-color-primary-soft: #e8f2ee;
+  --app-color-primary-rgb: 47, 111, 94;
+  --app-color-warning: #d8aa32;
+  --app-color-danger: #b95245;
+  --app-color-danger-soft: #fff0ec;
+  --app-color-white-rgb: 255, 253, 248;
+  --app-color-text-rgb: 36, 41, 37;
+
+  /* AppSpacing */
+  --app-space-1: 4px;
+  --app-space-2: 8px;
+  --app-space-3: 12px;
+  --app-space-4: 16px;
+  --app-space-5: 20px;
+  --app-space-6: 24px;
+  --app-space-7: 28px;
+  --app-space-8: 32px;
+  --app-space-10: 40px;
+  --app-space-12: 48px;
+  --app-space-14: 56px;
+  --app-space-16: 64px;
+  --app-page-gutter: clamp(18px, 4vw, 40px);
+  --app-page-width: 1180px;
+
+  /* AppRadius */
+  --app-radius-xs: 8px;
+  --app-radius-sm: 12px;
+  --app-radius-md: 16px;
+  --app-radius-lg: 22px;
+  --app-radius-card: 28px;
+  --app-radius-pill: 999px;
+
+  /* AppTypography */
+  --app-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --app-font-size-xs: 12px;
+  --app-font-size-sm: 14px;
+  --app-font-size-md: 16px;
+  --app-font-size-lg: 18px;
+  --app-font-size-xl: 24px;
+  --app-font-size-2xl: 32px;
+  --app-font-size-display: clamp(34px, 5vw, 52px);
+  --app-line-tight: 1.08;
+  --app-line-title: 1.18;
+  --app-line-body: 1.55;
+  --app-weight-regular: 500;
+  --app-weight-medium: 650;
+  --app-weight-strong: 780;
+
+  /* AppShadow */
+  --app-shadow-subtle: 0 12px 28px rgba(var(--app-color-text-rgb), 0.06);
+  --app-shadow-card: 0 18px 42px rgba(var(--app-color-text-rgb), 0.08);
+  --app-shadow-primary: 0 12px 24px rgba(var(--app-color-primary-rgb), 0.16);
+  --app-shadow-focus: 0 0 0 var(--app-space-1) rgba(var(--app-color-primary-rgb), 0.12);
+
+  /* AppAnimation */
+  --app-duration-fast: 140ms;
+  --app-duration-base: 190ms;
+  --app-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}

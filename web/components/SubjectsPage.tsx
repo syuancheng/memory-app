@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, Subject, Tag } from "@/lib/api";
 
 export default function SubjectsPage() {
@@ -34,15 +34,25 @@ export default function SubjectsPage() {
       .catch((err: Error) => setError(err.message));
   }, [selectedSubjectID]);
 
+  const selectedSubject = useMemo(
+    () => subjects.find((subject) => subject.id === selectedSubjectID),
+    [subjects, selectedSubjectID]
+  );
+
   async function createSubject() {
     const name = subjectName.trim();
     if (!name) {
       return;
     }
-    const subject = await api.createSubject(name);
-    setSubjects((current) => [...current, subject].sort((a, b) => a.name.localeCompare(b.name)));
-    setSelectedSubjectID(subject.id);
-    setSubjectName("");
+    try {
+      const subject = await api.createSubject(name);
+      setSubjects((current) => [...current, subject].sort((a, b) => a.name.localeCompare(b.name)));
+      setSelectedSubjectID(subject.id);
+      setSubjectName("");
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create subject");
+    }
   }
 
   async function createTag() {
@@ -50,63 +60,90 @@ export default function SubjectsPage() {
     if (!selectedSubjectID || !name) {
       return;
     }
-    const tag = await api.createTag(selectedSubjectID, name);
-    setTags((current) => [...current, tag].sort((a, b) => a.name.localeCompare(b.name)));
-    setTagName("");
+    try {
+      const tag = await api.createTag(selectedSubjectID, name);
+      setTags((current) => [...current, tag].sort((a, b) => a.name.localeCompare(b.name)));
+      setTagName("");
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create tag");
+    }
   }
 
   return (
     <section>
-      <div className="pageHeader">
+      <div className="pageHero">
         <div>
-          <h1>Subjects</h1>
-          <p className="subtle">Create subjects and tags before uploading cards.</p>
+          <p className="eyebrow">Subjects</p>
+          <h1>Organize your sets</h1>
+          <p className="subtle">
+            Subjects group your study sets. Tags make each set easy to filter before review.
+          </p>
+        </div>
+        <div className="heroCard">
+          <div className="heroMetric">
+            <div className="metric">
+              <strong>{subjects.length}</strong>
+              <span>subjects</span>
+            </div>
+            <div className="metric">
+              <strong>{tags.length}</strong>
+              <span>tags shown</span>
+            </div>
+          </div>
         </div>
       </div>
 
       {error && <div className="error">{error}</div>}
 
-      <div className="split">
-        <div className="panel stack">
-          <div className="field">
-            <label htmlFor="subjectName">New Subject</label>
-            <div className="actions">
-              <input
-                id="subjectName"
-                value={subjectName}
-                onChange={(event) => setSubjectName(event.target.value)}
-                placeholder="English"
-              />
-              <button className="secondary" onClick={createSubject}>
-                Add
-              </button>
+      <div className="libraryGrid">
+        <div className="libraryPanel stack">
+          <div>
+            <h2>Subjects</h2>
+            <p className="subtle">Choose a subject to manage its tags.</p>
+          </div>
+          <div className="quickCreate">
+            <div className="field">
+              <label htmlFor="subjectName">New subject</label>
+              <div className="actions">
+                <input
+                  id="subjectName"
+                  value={subjectName}
+                  onChange={(event) => setSubjectName(event.target.value)}
+                  placeholder="English"
+                />
+                <button className="secondary" onClick={createSubject}>
+                  Add
+                </button>
+              </div>
             </div>
           </div>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Subject</th>
-                <th>Cards</th>
-                <th>Due</th>
-              </tr>
-            </thead>
-            <tbody>
-              {subjects.map((subject) => (
-                <tr key={subject.id} onClick={() => setSelectedSubjectID(subject.id)}>
-                  <td>
-                    <strong>{subject.name}</strong>
-                  </td>
-                  <td>{subject.card_count}</td>
-                  <td>{subject.due_count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+          <div className="subjectList">
+            {subjects.map((subject) => (
+              <button
+                className={`subjectCard ${selectedSubjectID === subject.id ? "subjectCardActive" : ""}`}
+                key={subject.id}
+                onClick={() => setSelectedSubjectID(subject.id)}
+              >
+                <strong>{subject.name}</strong>
+                <span className="subjectStats">
+                  <span>{subject.card_count} cards</span>
+                  <span>{subject.due_count} due</span>
+                </span>
+              </button>
+            ))}
+            {subjects.length === 0 && <div className="empty">No subjects yet.</div>}
+          </div>
         </div>
 
-        <div className="panel stack">
+        <div className="libraryPanel stack">
+          <div>
+            <h2>{selectedSubject ? selectedSubject.name : "Tags"}</h2>
+            <p className="subtle">Add focused tags for review filters and card creation.</p>
+          </div>
           <div className="field">
-            <label htmlFor="tagName">New Tag</label>
+            <label htmlFor="tagName">New tag</label>
             <div className="actions">
               <input
                 id="tagName"
@@ -120,33 +157,19 @@ export default function SubjectsPage() {
               </button>
             </div>
           </div>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Tag</th>
-                <th>Cards</th>
-                <th>Due</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tags.map((tag) => (
-                <tr key={tag.id}>
-                  <td>
-                    <strong>{tag.name}</strong>
-                  </td>
-                  <td>{tag.card_count}</td>
-                  <td>{tag.due_count}</td>
-                </tr>
-              ))}
-              {tags.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="empty">
-                    No tags yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+
+          <div className="tagPanel">
+            {tags.map((tag) => (
+              <div className="tagRow" key={tag.id}>
+                <strong>{tag.name}</strong>
+                <span className="subjectStats">
+                  <span>{tag.card_count} cards</span>
+                  <span>{tag.due_count} due</span>
+                </span>
+              </div>
+            ))}
+            {tags.length === 0 && <div className="empty">No tags yet.</div>}
+          </div>
         </div>
       </div>
     </section>

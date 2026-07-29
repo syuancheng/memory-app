@@ -11,21 +11,30 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <div className="shell">
-          <aside className="sidebar">
+        <div className="appShell">
+          <header className="topbar">
             <div className="brand">
-              <span className="brandMark">M</span>
+              <Link className="brandMark" href="/cards">
+                M
+              </Link>
               <div>
                 <strong>Memory</strong>
-                <span>Card admin</span>
+                <span>Study sets</span>
               </div>
             </div>
-            <nav>
-              <Link href="/cards">Cards</Link>
-              <Link href="/cards/new">New Card</Link>
+            <nav className="topnav" aria-label="Primary navigation">
+              <Link href="/cards">Library</Link>
               <Link href="/subjects">Subjects</Link>
             </nav>
-          </aside>
+            <div className="topbarActions">
+              <Link className="ghostButton" href="/cards">
+                Search sets
+              </Link>
+              <Link className="primaryButton" href="/cards/new">
+                Create
+              </Link>
+            </div>
+          </header>
           <main className="main">{children}</main>
         </div>
       </body>

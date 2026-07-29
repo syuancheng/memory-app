@@ -50,9 +50,11 @@ export default function CardsPage() {
     () => subjects.find((subject) => subject.id === subjectID),
     [subjects, subjectID]
   );
+  const totalCards = subjects.reduce((total, subject) => total + subject.card_count, 0);
+  const dueCount = subjects.reduce((total, subject) => total + subject.due_count, 0);
 
   async function deleteCard(cardID: string) {
-    if (!confirm("Delete this card?")) {
+    if (!confirm("Delete this study set?")) {
       return;
     }
     await api.deleteCard(cardID);
@@ -61,14 +63,30 @@ export default function CardsPage() {
 
   return (
     <section>
-      <div className="pageHeader">
+      <div className="pageHero">
         <div>
-          <h1>Cards</h1>
-          <p className="subtle">Upload and manage cards used by the iOS review app.</p>
+          <p className="eyebrow">Library</p>
+          <h1>Your English study sets</h1>
+          <p className="subtle">
+            Build focused sets for the iOS review app, then keep cards organized by subject and tag.
+          </p>
         </div>
-        <Link className="button" href="/cards/new">
-          New Card
-        </Link>
+        <div className="heroCard">
+          <div className="heroMetric">
+            <div className="metric">
+              <strong>{subjects.length}</strong>
+              <span>subjects</span>
+            </div>
+            <div className="metric">
+              <strong>{totalCards}</strong>
+              <span>cards</span>
+            </div>
+            <div className="metric">
+              <strong>{dueCount}</strong>
+              <span>due</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {error && <div className="error">{error}</div>}
@@ -80,7 +98,7 @@ export default function CardsPage() {
             id="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Front or answer text"
+            placeholder="Search front or answer"
           />
         </div>
         <div className="field">
@@ -110,28 +128,46 @@ export default function CardsPage() {
             ))}
           </select>
         </div>
-        <button className="secondary" onClick={() => { setSubjectID(""); setTagID(""); setSearch(""); }}>
+        <button
+          className="secondary"
+          onClick={() => {
+            setSubjectID("");
+            setTagID("");
+            setSearch("");
+          }}
+        >
           Reset
         </button>
       </div>
 
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Front</th>
-            <th>Answer</th>
-            <th>Subject</th>
-            <th>Tags</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {cards.map((card) => (
-            <tr key={card.id}>
-              <td>{card.front_text}</td>
-              <td>{card.answer_text}</td>
-              <td>{card.subject_name}</td>
-              <td>
+      <div className="setGrid">
+        {cards.map((card) => (
+          <article className="setCard" key={card.id}>
+            <div className="setTopline">
+              <div className="setTitle">
+                <div className="setMeta">
+                  <span className="pill">{card.subject_name}</span>
+                  <span className="pill pillMuted">{card.answer_tokens.length} terms</span>
+                </div>
+                <h3>{card.front_text}</h3>
+              </div>
+            </div>
+
+            <div className="termPreview">
+              <div className="termBlock">
+                <span>Answer</span>
+                <p>{card.answer_text}</p>
+              </div>
+              {card.grammar_phrases.length > 0 && (
+                <div className="termBlock">
+                  <span>Key phrase</span>
+                  <p>{card.grammar_phrases[0].text}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="setMeta">
+              {card.tags.length > 0 ? (
                 <div className="tagList">
                   {card.tags.map((tag) => (
                     <span className="tag" key={tag.id}>
@@ -139,35 +175,46 @@ export default function CardsPage() {
                     </span>
                   ))}
                 </div>
-              </td>
-              <td>
-                <div className="actions">
-                  <Link className="secondary" href={`/cards/${card.id}/edit`}>
-                    Edit
-                  </Link>
-                  <button className="danger" onClick={() => deleteCard(card.id)}>
-                    Delete
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-          {!loading && cards.length === 0 && (
-            <tr>
-              <td colSpan={5} className="empty">
-                No cards found.
-              </td>
-            </tr>
-          )}
-          {loading && (
-            <tr>
-              <td colSpan={5} className="empty">
-                Loading cards...
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+              ) : (
+                <span className="pill pillMuted">No tags</span>
+              )}
+            </div>
+
+            <div className="setFooter">
+              <span className="subtle">Updated {new Date(card.updated_at).toLocaleDateString()}</span>
+              <div className="actions">
+                <Link className="secondary" href={`/cards/${card.id}/edit`}>
+                  Edit
+                </Link>
+                <button className="danger" onClick={() => deleteCard(card.id)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      {!loading && cards.length === 0 && (
+        <div className="empty">
+          No study sets found.
+          <div className="emptyAction">
+            <Link className="primaryButton" href="/cards/new">
+              Create a set
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {loading && <div className="empty">Loading study sets...</div>}
+
+      {cards.length > 0 && (
+        <div className="sectionAction">
+          <Link className="primaryButton" href="/cards/new">
+            Create a new set
+          </Link>
+        </div>
+      )}
     </section>
   );
 }

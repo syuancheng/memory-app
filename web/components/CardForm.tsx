@@ -73,10 +73,15 @@ export default function CardForm({ mode, cardID }: Props) {
     if (!name) {
       return;
     }
-    const subject = await api.createSubject(name);
-    setSubjects((current) => [...current, subject].sort((a, b) => a.name.localeCompare(b.name)));
-    setSubjectID(subject.id);
-    setNewSubjectName("");
+    try {
+      const subject = await api.createSubject(name);
+      setSubjects((current) => [...current, subject].sort((a, b) => a.name.localeCompare(b.name)));
+      setSubjectID(subject.id);
+      setNewSubjectName("");
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create subject");
+    }
   }
 
   async function createTag() {
@@ -84,10 +89,15 @@ export default function CardForm({ mode, cardID }: Props) {
     if (!subjectID || !name) {
       return;
     }
-    const tag = await api.createTag(subjectID, name);
-    setTags((current) => [...current, tag].sort((a, b) => a.name.localeCompare(b.name)));
-    setTagIDs((current) => [...current, tag.id]);
-    setNewTagName("");
+    try {
+      const tag = await api.createTag(subjectID, name);
+      setTags((current) => [...current, tag].sort((a, b) => a.name.localeCompare(b.name)));
+      setTagIDs((current) => [...current, tag.id]);
+      setNewTagName("");
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create tag");
+    }
   }
 
   function toggleTag(tagID: string) {
@@ -111,6 +121,18 @@ export default function CardForm({ mode, cardID }: Props) {
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
+    if (!subjectID) {
+      setError("Select a subject before saving.");
+      return;
+    }
+    if (tagIDs.length === 0) {
+      setError("Select at least one tag before saving.");
+      return;
+    }
+    if (!frontText.trim() || !answerText.trim()) {
+      setError("Front and answer are required.");
+      return;
+    }
     setSaving(true);
     const payload: CardPayload = {
       subject_id: subjectID,
@@ -140,31 +162,123 @@ export default function CardForm({ mode, cardID }: Props) {
 
   return (
     <section>
-      <div className="pageHeader">
+      <div className="pageHero">
         <div>
-          <h1>{mode === "edit" ? "Edit Card" : "New Card"}</h1>
-          <p className="subtle">Create English review material for the iOS app.</p>
+          <p className="eyebrow">{mode === "edit" ? "Edit set" : "Create"}</p>
+          <h1>{mode === "edit" ? "Edit study set" : "Create a new study set"}</h1>
+          <p className="subtle">
+            Add the prompt, answer, and phrase hints that will appear in the iOS review flow.
+          </p>
         </div>
       </div>
 
       {error && <div className="error">{error}</div>}
 
-      <form className="panel stack" onSubmit={submit}>
-        <div className="formGrid">
-          <div className="field">
-            <label htmlFor="subject">Subject</label>
-            <select id="subject" value={subjectID} onChange={(event) => setSubjectID(event.target.value)}>
-              <option value="">Select subject</option>
-              {subjects.map((subject) => (
-                <option key={subject.id} value={subject.id}>
-                  {subject.name}
-                </option>
-              ))}
-            </select>
+      <form className="formLayout" onSubmit={submit}>
+        <div className="stack">
+          <div className="builderCard">
+            <div className="builderHeader">
+              <span>Card 1</span>
+              <span>Chinese to English</span>
+            </div>
+            <div className="builderBody">
+              <div className="formGrid">
+                <div className="field wide">
+                  <label htmlFor="front">Term / prompt</label>
+                  <textarea
+                    id="front"
+                    value={frontText}
+                    onChange={(event) => setFrontText(event.target.value)}
+                    placeholder="我想委婉问一下，明天之前能不能拿到？"
+                  />
+                </div>
+                <div className="field wide">
+                  <label htmlFor="answer">Definition / answer</label>
+                  <textarea
+                    id="answer"
+                    value={answerText}
+                    onChange={(event) => setAnswerText(event.target.value)}
+                    placeholder="Any chance of getting it by tomorrow?"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="field">
-            <label htmlFor="newSubject">Create Subject</label>
-            <div className="actions">
+
+          <div className="builderCard">
+            <div className="builderHeader">
+              <span>Phrase hints</span>
+              <button type="button" className="ghost" onClick={() => setPhrases((current) => [...current, { ...emptyPhrase }])}>
+                Add row
+              </button>
+            </div>
+            <div className="builderBody">
+              {phrases.map((phrase, index) => (
+                <div className="phraseRow" key={index}>
+                  <input
+                    value={phrase.text}
+                    onChange={(event) => updatePhrase(index, "text", event.target.value)}
+                    placeholder="Any chance of + doing"
+                  />
+                  <input
+                    value={phrase.note}
+                    onChange={(event) => updatePhrase(index, "note", event.target.value)}
+                    placeholder="有没有可能... / 委婉询问可能性"
+                  />
+                  <button type="button" className="ghost" onClick={() => removePhrase(index)}>
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="actions">
+            <button className="primaryButton" type="submit" disabled={saving}>
+              {saving ? "Saving..." : "Save set"}
+            </button>
+            <button type="button" className="secondary" onClick={() => router.push("/cards")}>
+              Cancel
+            </button>
+          </div>
+        </div>
+
+        <aside className="sidePanel">
+          <div className="miniCard stack">
+            <h3>Set details</h3>
+            <div className="field">
+              <label htmlFor="subject">Subject</label>
+              <select id="subject" value={subjectID} onChange={(event) => setSubjectID(event.target.value)}>
+                <option value="">Select subject</option>
+                {subjects.map((subject) => (
+                  <option key={subject.id} value={subject.id}>
+                    {subject.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <span className="label">Tags</span>
+              <div className="checkboxGrid">
+                {tags.map((tag) => (
+                  <label className="checkboxRow" key={tag.id}>
+                    <input
+                      type="checkbox"
+                      checked={tagIDs.includes(tag.id)}
+                      onChange={() => toggleTag(tag.id)}
+                    />
+                    <span>{tag.name}</span>
+                  </label>
+                ))}
+                {tags.length === 0 && <div className="empty">No tags in this subject.</div>}
+              </div>
+            </div>
+          </div>
+
+          <div className="miniCard quickCreate">
+            <h3>Quick create</h3>
+            <div className="field">
+              <label htmlFor="newSubject">New subject</label>
               <input
                 id="newSubject"
                 value={newSubjectName}
@@ -172,29 +286,11 @@ export default function CardForm({ mode, cardID }: Props) {
                 placeholder="English"
               />
               <button type="button" className="secondary" onClick={createSubject}>
-                Add
+                Add subject
               </button>
             </div>
-          </div>
-
-          <div className="field wide">
-            <span className="label">Tags</span>
-            <div className="checkboxGrid">
-              {tags.map((tag) => (
-                <label className="checkboxRow" key={tag.id}>
-                  <input
-                    type="checkbox"
-                    checked={tagIDs.includes(tag.id)}
-                    onChange={() => toggleTag(tag.id)}
-                  />
-                  <span>{tag.name}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <div className="field wide">
-            <label htmlFor="newTag">Create Tag</label>
-            <div className="actions">
+            <div className="field">
+              <label htmlFor="newTag">New tag</label>
               <input
                 id="newTag"
                 value={newTagName}
@@ -203,68 +299,11 @@ export default function CardForm({ mode, cardID }: Props) {
                 disabled={!subjectID}
               />
               <button type="button" className="secondary" onClick={createTag} disabled={!subjectID}>
-                Add
+                Add tag
               </button>
             </div>
           </div>
-
-          <div className="field wide">
-            <label htmlFor="front">Front</label>
-            <textarea
-              id="front"
-              value={frontText}
-              onChange={(event) => setFrontText(event.target.value)}
-              placeholder="我想委婉问一下，明天之前能不能拿到？"
-            />
-          </div>
-          <div className="field wide">
-            <label htmlFor="answer">Answer</label>
-            <textarea
-              id="answer"
-              value={answerText}
-              onChange={(event) => setAnswerText(event.target.value)}
-              placeholder="Any chance of getting it by tomorrow?"
-            />
-          </div>
-        </div>
-
-        <div>
-          <div className="pageHeader">
-            <div>
-              <h1 style={{ fontSize: 20 }}>Grammar / Phrases</h1>
-              <p className="subtle">Each row becomes a hint on the iOS back side.</p>
-            </div>
-            <button type="button" className="secondary" onClick={() => setPhrases((current) => [...current, { ...emptyPhrase }])}>
-              Add row
-            </button>
-          </div>
-          {phrases.map((phrase, index) => (
-            <div className="phraseRow" key={index}>
-              <input
-                value={phrase.text}
-                onChange={(event) => updatePhrase(index, "text", event.target.value)}
-                placeholder="Any chance of + doing"
-              />
-              <input
-                value={phrase.note}
-                onChange={(event) => updatePhrase(index, "note", event.target.value)}
-                placeholder="有没有可能... / 委婉询问可能性"
-              />
-              <button type="button" className="ghost" onClick={() => removePhrase(index)}>
-                Remove
-              </button>
-            </div>
-          ))}
-        </div>
-
-        <div className="actions">
-          <button className="button" type="submit" disabled={saving}>
-            {saving ? "Saving..." : "Save Card"}
-          </button>
-          <button type="button" className="secondary" onClick={() => router.push("/cards")}>
-            Cancel
-          </button>
-        </div>
+        </aside>
       </form>
     </section>
   );
