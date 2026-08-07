@@ -25,8 +25,12 @@ func NewServer(pool *pgxpool.Pool) http.Handler {
 
 		r.Get("/subjects", server.listSubjects)
 		r.Post("/subjects", server.createSubject)
+		r.Put("/subjects/{subjectID}", server.updateSubject)
+		r.Delete("/subjects/{subjectID}", server.deleteSubject)
 		r.Get("/subjects/{subjectID}/tags", server.listTags)
 		r.Post("/subjects/{subjectID}/tags", server.createTag)
+		r.Put("/subjects/{subjectID}/tags/{tagID}", server.updateTag)
+		r.Delete("/subjects/{subjectID}/tags/{tagID}", server.deleteTag)
 
 		r.Get("/cards", server.listCards)
 		r.Post("/cards", server.createCard)

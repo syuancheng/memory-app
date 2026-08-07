@@ -210,6 +210,95 @@ func (s *Server) createSubject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, subject)
 }
 
+func (s *Server) updateSubject(w http.ResponseWriter, r *http.Request) {
+	var req nameRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if err := required(req.Name, "name"); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var subject model.Subject
+	err := s.db.QueryRow(r.Context(), `
+		UPDATE subjects
+		SET name = $1, updated_at = now()
+		WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL
+		RETURNING id::text, name, 0, 0
+	`, strings.TrimSpace(req.Name), chi.URLParam(r, "subjectID"), db.DemoUserID).Scan(
+		&subject.ID,
+		&subject.Name,
+		&subject.CardCount,
+		&subject.DueCount,
+	)
+	if err == pgx.ErrNoRows {
+		writeError(w, http.StatusNotFound, "subject not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, subject)
+}
+
+func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
+	subjectID := chi.URLParam(r, "subjectID")
+	tx, err := s.db.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	commandTag, err := tx.Exec(r.Context(), `
+		UPDATE subjects SET deleted_at = now(), updated_at = now()
+		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+	`, subjectID, db.DemoUserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if commandTag.RowsAffected() == 0 {
+		writeError(w, http.StatusNotFound, "subject not found")
+		return
+	}
+
+	if _, err = tx.Exec(r.Context(), `
+		UPDATE tags SET deleted_at = now(), updated_at = now()
+		WHERE subject_id = $1 AND user_id = $2 AND deleted_at IS NULL
+	`, subjectID, db.DemoUserID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if _, err = tx.Exec(r.Context(), `
+		UPDATE cards SET deleted_at = now(), updated_at = now()
+		WHERE subject_id = $1 AND user_id = $2 AND deleted_at IS NULL
+	`, subjectID, db.DemoUserID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if _, err = tx.Exec(r.Context(), `
+		UPDATE review_states SET status = 'deleted'
+		WHERE card_id IN (
+			SELECT id FROM cards WHERE subject_id = $1 AND user_id = $2
+		)
+	`, subjectID, db.DemoUserID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err = tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 func (s *Server) listTags(w http.ResponseWriter, r *http.Request) {
 	subjectID := chi.URLParam(r, "subjectID")
 	rows, err := s.db.Query(r.Context(), `
@@ -267,6 +356,97 @@ func (s *Server) createTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, tag)
+}
+
+func (s *Server) updateTag(w http.ResponseWriter, r *http.Request) {
+	var req nameRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if err := required(req.Name, "name"); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var tag model.Tag
+	err := s.db.QueryRow(r.Context(), `
+		UPDATE tags
+		SET name = $1, updated_at = now()
+		WHERE id = $2 AND subject_id = $3 AND user_id = $4 AND deleted_at IS NULL
+		RETURNING id::text, subject_id::text, name, 0, 0
+	`, strings.TrimSpace(req.Name), chi.URLParam(r, "tagID"), chi.URLParam(r, "subjectID"), db.DemoUserID).Scan(
+		&tag.ID,
+		&tag.SubjectID,
+		&tag.Name,
+		&tag.CardCount,
+		&tag.DueCount,
+	)
+	if err == pgx.ErrNoRows {
+		writeError(w, http.StatusNotFound, "set not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, tag)
+}
+
+func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
+	subjectID := chi.URLParam(r, "subjectID")
+	tagID := chi.URLParam(r, "tagID")
+	tx, err := s.db.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	commandTag, err := tx.Exec(r.Context(), `
+		UPDATE tags SET deleted_at = now(), updated_at = now()
+		WHERE id = $1 AND subject_id = $2 AND user_id = $3 AND deleted_at IS NULL
+	`, tagID, subjectID, db.DemoUserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if commandTag.RowsAffected() == 0 {
+		writeError(w, http.StatusNotFound, "set not found")
+		return
+	}
+
+	if _, err = tx.Exec(r.Context(), `
+		UPDATE cards SET deleted_at = now(), updated_at = now()
+		WHERE subject_id = $1
+		  AND user_id = $2
+		  AND deleted_at IS NULL
+		  AND id IN (
+			SELECT card_id FROM card_tags WHERE tag_id = $3
+		  )
+	`, subjectID, db.DemoUserID, tagID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if _, err = tx.Exec(r.Context(), `
+		UPDATE review_states SET status = 'deleted'
+		WHERE card_id IN (
+			SELECT c.id
+			FROM cards c
+			JOIN card_tags ct ON ct.card_id = c.id
+			WHERE c.subject_id = $1 AND c.user_id = $2 AND ct.tag_id = $3
+		)
+	`, subjectID, db.DemoUserID, tagID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err = tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (s *Server) listCards(w http.ResponseWriter, r *http.Request) {

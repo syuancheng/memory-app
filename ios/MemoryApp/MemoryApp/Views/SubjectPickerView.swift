@@ -75,6 +75,7 @@ struct SubjectPickerView: View {
                 }
             }
         }
+        .toolbar(.hidden, for: .tabBar)
     }
 }
 
@@ -102,6 +103,7 @@ struct StudySelectionPage<Content: View>: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
     }
 }
 

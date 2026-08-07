@@ -36,6 +36,14 @@ final class APIClient {
         try await request(path: "/subjects", method: "POST", body: NamePayload(name: name))
     }
 
+    func updateSubject(subjectID: String, name: String) async throws -> AppSubject {
+        try await request(path: "/subjects/\(subjectID)", method: "PUT", body: NamePayload(name: name))
+    }
+
+    func deleteSubject(subjectID: String) async throws {
+        let _: ActionStatusResponse = try await request(path: "/subjects/\(subjectID)", method: "DELETE")
+    }
+
     func getMeSummary() async throws -> MeSummary {
         try await request(path: "/me/summary")
     }
@@ -48,11 +56,27 @@ final class APIClient {
         try await request(path: "/subjects/\(subjectID)/tags", method: "POST", body: NamePayload(name: name))
     }
 
-    func listCards(search: String = "") async throws -> [ReviewCard] {
+    func updateTag(subjectID: String, tagID: String, name: String) async throws -> AppTag {
+        try await request(path: "/subjects/\(subjectID)/tags/\(tagID)", method: "PUT", body: NamePayload(name: name))
+    }
+
+    func deleteTag(subjectID: String, tagID: String) async throws {
+        let _: ActionStatusResponse = try await request(path: "/subjects/\(subjectID)/tags/\(tagID)", method: "DELETE")
+    }
+
+    func listCards(search: String = "", subjectID: String? = nil, tagIDs: [String] = []) async throws -> [ReviewCard] {
         var components = URLComponents(url: baseURL.appendingPathComponent("cards"), resolvingAgainstBaseURL: false)
+        var queryItems: [URLQueryItem] = []
         if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            components?.queryItems = [URLQueryItem(name: "search", value: search)]
+            queryItems.append(URLQueryItem(name: "search", value: search))
         }
+        if let subjectID, !subjectID.isEmpty {
+            queryItems.append(URLQueryItem(name: "subject_id", value: subjectID))
+        }
+        if !tagIDs.isEmpty {
+            queryItems.append(URLQueryItem(name: "tag_ids", value: tagIDs.joined(separator: ",")))
+        }
+        components?.queryItems = queryItems.isEmpty ? nil : queryItems
         guard let url = components?.url else {
             throw APIError.badURL
         }

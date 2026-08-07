@@ -20,6 +20,7 @@
 		100000000000000000000111 /* OPPOSans-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000212 /* OPPOSans-Regular.ttf */; };
 		100000000000000000000112 /* OPPOSans-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000213 /* OPPOSans-Medium.ttf */; };
 		100000000000000000000113 /* OPPOSans-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000214 /* OPPOSans-Bold.ttf */; };
+		100000000000000000000114 /* CardsHierarchyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000215 /* CardsHierarchyView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -38,6 +39,7 @@
 		100000000000000000000212 /* OPPOSans-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "OPPOSans-Regular.ttf"; sourceTree = "<group>"; };
 		100000000000000000000213 /* OPPOSans-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "OPPOSans-Medium.ttf"; sourceTree = "<group>"; };
 		100000000000000000000214 /* OPPOSans-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "OPPOSans-Bold.ttf"; sourceTree = "<group>"; };
+		100000000000000000000215 /* CardsHierarchyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardsHierarchyView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -106,6 +108,7 @@
 				100000000000000000000208 /* ReviewSessionView.swift */,
 				100000000000000000000209 /* ReviewCardView.swift */,
 				100000000000000000000211 /* MeView.swift */,
+				100000000000000000000215 /* CardsHierarchyView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -201,6 +204,7 @@
 				100000000000000000000108 /* ReviewSessionView.swift in Sources */,
 				100000000000000000000109 /* ReviewCardView.swift in Sources */,
 				100000000000000000000110 /* MeView.swift in Sources */,
+				100000000000000000000114 /* CardsHierarchyView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

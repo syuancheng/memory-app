@@ -17,7 +17,7 @@ struct AppShellView: View {
                     Label("Home", systemImage: "house.fill")
                 }
 
-            CardsView()
+            CardsHierarchyView()
                 .tabItem {
                     Label("Cards", systemImage: "rectangle.stack.fill")
                 }

@@ -72,6 +72,7 @@ struct ReviewSessionView: View {
         .task {
             await loadCards()
         }
+        .toolbar(.hidden, for: .tabBar)
     }
 
     private func loadCards() async {
