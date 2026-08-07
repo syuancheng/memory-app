@@ -21,6 +21,27 @@ cd backend
 PORT=8081 go run ./cmd/server
 ```
 
+Start the MCP server for ChatGPT or another MCP client:
+
+```bash
+cd backend
+PORT=3001 MEMORY_MCP_TOKEN=replace-with-a-secret go run ./cmd/mcp-server
+```
+
+The MCP endpoint is:
+
+```text
+http://127.0.0.1:3001/mcp
+```
+
+Available MCP tools:
+
+- `get_subjects_sets`
+- `add_cards` for single or batch card creation
+- `delete_card`
+
+The MCP server uses the same PostgreSQL database as the backend. It requires Go 1.23 or newer because it uses the official `modelcontextprotocol/go-sdk`.
+
 Start the website:
 
 ```bash
