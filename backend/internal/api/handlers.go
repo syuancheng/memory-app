@@ -42,6 +42,12 @@ type reviewResultRequest struct {
 	TotalTokensCount    int    `json:"total_tokens_count"`
 }
 
+type reviewPreviewResponse struct {
+	Grade           string    `json:"grade"`
+	IntervalSeconds int       `json:"interval_seconds"`
+	DueAt           time.Time `json:"due_at"`
+}
+
 type meSummaryResponse struct {
 	User           meUserResponse        `json:"user"`
 	TotalCards     int                   `json:"total_cards"`
@@ -291,6 +297,30 @@ func (s *Server) getCard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, cards[0])
 }
 
+func (s *Server) getReviewPreview(w http.ResponseWriter, r *http.Request) {
+	state, err := loadReviewState(r.Context(), s.db, chi.URLParam(r, "cardID"))
+	if err == pgx.ErrNoRows {
+		writeError(w, http.StatusNotFound, "review state not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	now := time.Now().UTC()
+	previews := scheduler.Preview(state, now)
+	response := make([]reviewPreviewResponse, 0, len(previews))
+	for _, preview := range previews {
+		response = append(response, reviewPreviewResponse{
+			Grade:           preview.Grade,
+			IntervalSeconds: preview.IntervalSeconds,
+			DueAt:           preview.Next.DueAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
 func (s *Server) createCard(w http.ResponseWriter, r *http.Request) {
 	var req cardRequest
 	if err := readJSON(r, &req); err != nil {
@@ -398,8 +428,8 @@ func (s *Server) submitReviewResult(w http.ResponseWriter, r *http.Request) {
 	if req.Mode == "" {
 		req.Mode = "review"
 	}
-	if req.Rating != "forgot" && req.Rating != "fuzzy" && req.Rating != "remembered" {
-		writeError(w, http.StatusBadRequest, "rating must be forgot, fuzzy, or remembered")
+	if !scheduler.IsGrade(req.Rating) {
+		writeError(w, http.StatusBadRequest, "rating must be again, hard, good, or easy")
 		return
 	}
 
@@ -410,24 +440,7 @@ func (s *Server) submitReviewResult(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	var state model.ReviewState
-	err = tx.QueryRow(r.Context(), `
-		SELECT card_id::text, status, ease::float8, interval_days, due_at, review_count, lapse_count,
-		       last_reviewed_at, mastered_at
-		FROM review_states
-		WHERE card_id = $1
-		FOR UPDATE
-	`, req.CardID).Scan(
-		&state.CardID,
-		&state.Status,
-		&state.Ease,
-		&state.IntervalDays,
-		&state.DueAt,
-		&state.ReviewCount,
-		&state.LapseCount,
-		&state.LastReviewedAt,
-		&state.MasteredAt,
-	)
+	state, err := loadReviewStateForUpdate(r.Context(), tx, req.CardID)
 	if err == pgx.ErrNoRows {
 		writeError(w, http.StatusNotFound, "review state not found")
 		return
@@ -469,6 +482,51 @@ func (s *Server) submitReviewResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, next)
+}
+
+func loadReviewState(ctx context.Context, pool *pgxpool.Pool, cardID string) (model.ReviewState, error) {
+	var state model.ReviewState
+	err := pool.QueryRow(ctx, `
+		SELECT rs.card_id::text, rs.status, rs.ease::float8, rs.interval_days, rs.due_at,
+		       rs.review_count, rs.lapse_count, rs.last_reviewed_at, rs.mastered_at
+		FROM review_states rs
+		JOIN cards c ON c.id = rs.card_id
+		WHERE rs.card_id = $1 AND c.user_id = $2 AND c.deleted_at IS NULL
+	`, cardID, db.DemoUserID).Scan(
+		&state.CardID,
+		&state.Status,
+		&state.Ease,
+		&state.IntervalDays,
+		&state.DueAt,
+		&state.ReviewCount,
+		&state.LapseCount,
+		&state.LastReviewedAt,
+		&state.MasteredAt,
+	)
+	return state, err
+}
+
+func loadReviewStateForUpdate(ctx context.Context, tx pgx.Tx, cardID string) (model.ReviewState, error) {
+	var state model.ReviewState
+	err := tx.QueryRow(ctx, `
+		SELECT rs.card_id::text, rs.status, rs.ease::float8, rs.interval_days, rs.due_at,
+		       rs.review_count, rs.lapse_count, rs.last_reviewed_at, rs.mastered_at
+		FROM review_states rs
+		JOIN cards c ON c.id = rs.card_id
+		WHERE rs.card_id = $1 AND c.user_id = $2 AND c.deleted_at IS NULL
+		FOR UPDATE OF rs
+	`, cardID, db.DemoUserID).Scan(
+		&state.CardID,
+		&state.Status,
+		&state.Ease,
+		&state.IntervalDays,
+		&state.DueAt,
+		&state.ReviewCount,
+		&state.LapseCount,
+		&state.LastReviewedAt,
+		&state.MasteredAt,
+	)
+	return state, err
 }
 
 func upsertCard(ctx context.Context, pool *pgxpool.Pool, cardID string, req cardRequest) (model.Card, error) {

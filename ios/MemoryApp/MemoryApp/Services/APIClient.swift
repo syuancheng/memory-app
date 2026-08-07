@@ -32,12 +32,39 @@ final class APIClient {
         try await request(path: "/subjects")
     }
 
+    func createSubject(name: String) async throws -> AppSubject {
+        try await request(path: "/subjects", method: "POST", body: NamePayload(name: name))
+    }
+
     func getMeSummary() async throws -> MeSummary {
         try await request(path: "/me/summary")
     }
 
     func listTags(subjectID: String) async throws -> [AppTag] {
         try await request(path: "/subjects/\(subjectID)/tags")
+    }
+
+    func createTag(subjectID: String, name: String) async throws -> AppTag {
+        try await request(path: "/subjects/\(subjectID)/tags", method: "POST", body: NamePayload(name: name))
+    }
+
+    func listCards(search: String = "") async throws -> [ReviewCard] {
+        var components = URLComponents(url: baseURL.appendingPathComponent("cards"), resolvingAgainstBaseURL: false)
+        if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            components?.queryItems = [URLQueryItem(name: "search", value: search)]
+        }
+        guard let url = components?.url else {
+            throw APIError.badURL
+        }
+        return try await request(url: url)
+    }
+
+    func createCard(_ payload: CardPayload) async throws -> ReviewCard {
+        try await request(path: "/cards", method: "POST", body: payload)
+    }
+
+    func updateCard(cardID: String, payload: CardPayload) async throws -> ReviewCard {
+        try await request(path: "/cards/\(cardID)", method: "PUT", body: payload)
     }
 
     func listDueCards(subjectID: String, tagIDs: [String], limit: Int = 30) async throws -> [ReviewCard] {
@@ -53,10 +80,14 @@ final class APIClient {
         return try await request(url: url)
     }
 
-    func submitReview(card: ReviewCard, rating: Rating, revealedCount: Int) async throws -> ReviewState {
+    func getReviewPreviews(cardID: String) async throws -> [ReviewGradePreview] {
+        try await request(path: "/cards/\(cardID)/review-preview")
+    }
+
+    func submitReview(card: ReviewCard, mode: StudyMode = .review, rating: Rating, revealedCount: Int) async throws -> ReviewState {
         let payload = ReviewResultPayload(
             cardID: card.id,
-            mode: "review",
+            mode: mode.rawValue,
             rating: rating.rawValue,
             revealedTokensCount: revealedCount,
             totalTokensCount: card.answerTokens.count
@@ -100,6 +131,10 @@ final class APIClient {
 
 private struct ActionStatusResponse: Decodable {
     let status: String
+}
+
+private struct NamePayload: Encodable {
+    let name: String
 }
 
 private struct ReviewResultPayload: Encodable {

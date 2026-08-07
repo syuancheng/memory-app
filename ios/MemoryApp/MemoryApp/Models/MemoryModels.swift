@@ -72,6 +72,31 @@ struct ReviewCard: Identifiable, Codable, Hashable {
     }
 }
 
+struct CardPayload: Encodable {
+    let subjectID: String
+    let tagIDs: [String]
+    let cardType: String
+    let direction: String
+    let frontText: String
+    let answerText: String
+    let grammarPhrases: [GrammarPhrasePayload]
+
+    enum CodingKeys: String, CodingKey {
+        case subjectID = "subject_id"
+        case tagIDs = "tag_ids"
+        case cardType = "card_type"
+        case direction
+        case frontText = "front_text"
+        case answerText = "answer_text"
+        case grammarPhrases = "grammar_phrases"
+    }
+}
+
+struct GrammarPhrasePayload: Encodable, Hashable {
+    var text: String
+    var note: String
+}
+
 struct ReviewState: Codable {
     let cardID: String
     let status: String
@@ -89,6 +114,19 @@ struct ReviewState: Codable {
         case dueAt = "due_at"
         case reviewCount = "review_count"
         case lapseCount = "lapse_count"
+    }
+}
+
+struct ReviewGradePreview: Identifiable, Codable, Hashable {
+    var id: Rating { grade }
+    let grade: Rating
+    let intervalSeconds: Int
+    let dueAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case grade
+        case intervalSeconds = "interval_seconds"
+        case dueAt = "due_at"
     }
 }
 
@@ -125,16 +163,18 @@ struct ActivityDay: Identifiable, Codable, Hashable {
     let count: Int
 }
 
-enum Rating: String, CaseIterable {
-    case forgot
-    case fuzzy
-    case remembered
+enum Rating: String, CaseIterable, Codable, Hashable {
+    case again
+    case hard
+    case good
+    case easy
 
     var title: String {
         switch self {
-        case .forgot: return "忘了"
-        case .fuzzy: return "模糊"
-        case .remembered: return "记住了"
+        case .again: return "Again"
+        case .hard: return "Hard"
+        case .good: return "Good"
+        case .easy: return "Easy"
         }
     }
 }

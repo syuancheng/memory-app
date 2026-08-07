@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ReviewSessionView: View {
+    var mode: StudyMode = .review
     let subject: AppSubject
     let tagIDs: [String]
     let onClose: () -> Void
@@ -8,6 +9,7 @@ struct ReviewSessionView: View {
     @State private var reviewStep = 0
     @State private var initialCardCount = 0
     @State private var completedCount = 0
+    @State private var gradePreviews: [ReviewGradePreview] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @AppStorage("lastReviewSummary") private var lastReviewSummary = "No sessions yet"
@@ -18,14 +20,17 @@ struct ReviewSessionView: View {
 
     var body: some View {
         ZStack {
-            ScreenBackground()
+            AppSurface.background
+                .ignoresSafeArea()
 
             if isLoading {
                 ProgressView()
             } else if let currentCard {
                 ReviewCardView(
+                    mode: mode,
                     card: currentCard,
                     progressText: "\(cards.count) left",
+                    gradePreviews: gradePreviews,
                     resetToken: reviewStep,
                     onClose: onClose,
                     onDelete: deleteCurrentCard,
@@ -41,7 +46,7 @@ struct ReviewSessionView: View {
                         .font(AppFont.medium(22))
                     Text("Reviewed cards will return when they are due again.")
                         .font(AppFont.regular(15))
-                        .foregroundStyle(Theme.muted)
+                        .foregroundStyle(AppSurface.muted)
                         .multilineTextAlignment(.center)
                 }
                 .padding(24)
@@ -52,10 +57,14 @@ struct ReviewSessionView: View {
                     Spacer()
                     Text(errorMessage)
                         .font(AppFont.regular(13))
-                        .foregroundStyle(Theme.red)
+                        .foregroundStyle(AppSurface.coral)
                         .padding(12)
-                        .background(Theme.paper)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .background(AppSurface.cardSubtle)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(AppSurface.line, lineWidth: 1)
+                        )
                         .padding()
                 }
             }
@@ -73,10 +82,24 @@ struct ReviewSessionView: View {
             reviewStep = 0
             initialCardCount = cards.count
             completedCount = 0
+            await loadGradePreviews()
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func loadGradePreviews() async {
+        guard let currentCard else {
+            gradePreviews = []
+            return
+        }
+        do {
+            gradePreviews = try await APIClient.shared.getReviewPreviews(cardID: currentCard.id)
+        } catch {
+            gradePreviews = []
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func submit(rating: Rating, revealedCount: Int) async {
@@ -85,12 +108,8 @@ struct ReviewSessionView: View {
         }
         errorMessage = nil
         do {
-            _ = try await APIClient.shared.submitReview(card: currentCard, rating: rating, revealedCount: revealedCount)
-            if rating == .remembered {
-                removeCurrentCardFromQueue()
-            } else {
-                retryCurrentCardLater()
-            }
+            _ = try await APIClient.shared.submitReview(card: currentCard, mode: mode, rating: rating, revealedCount: revealedCount)
+            removeCurrentCardFromQueue()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -131,34 +150,28 @@ struct ReviewSessionView: View {
         reviewStep += 1
         if cards.isEmpty {
             lastReviewSummary = "Completed \(nextCompletedCount) cards"
+            gradePreviews = []
+        } else {
+            Task {
+                await loadGradePreviews()
+            }
         }
-    }
-
-    private func retryCurrentCardLater() {
-        guard !cards.isEmpty else {
-            return
-        }
-        if cards.count > 1 {
-            let currentCard = cards.removeFirst()
-            cards.append(currentCard)
-        }
-        reviewStep += 1
     }
 
     private var completionView: some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 44, weight: .medium))
-                .foregroundStyle(Theme.green)
+                .foregroundStyle(AppSurface.green)
                 .padding(.bottom, 4)
 
             Text("Done for now")
                 .font(AppFont.medium(28))
-                .foregroundStyle(Theme.text)
+                .foregroundStyle(AppSurface.text)
 
             Text("Completed \(completedCount) of \(initialCardCount) cards.")
                 .font(AppFont.regular(15))
-                .foregroundStyle(Theme.muted)
+                .foregroundStyle(AppSurface.muted)
 
             Button("Back to home") {
                 onClose()
@@ -177,9 +190,9 @@ struct CompletionButtonStyle: ButtonStyle {
             .font(AppFont.medium(16))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, minHeight: 54)
-            .background(Theme.green.opacity(configuration.isPressed ? 0.82 : 1))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: Theme.green.opacity(0.18), radius: 24, y: 10)
+            .background(AppSurface.dark.opacity(configuration.isPressed ? 0.86 : 1))
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .shadow(color: AppSurface.dark.opacity(0.14), radius: 18, x: 0, y: 10)
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
     }
 }

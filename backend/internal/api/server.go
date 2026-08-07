@@ -31,6 +31,7 @@ func NewServer(pool *pgxpool.Pool) http.Handler {
 		r.Get("/cards", server.listCards)
 		r.Post("/cards", server.createCard)
 		r.Get("/cards/{cardID}", server.getCard)
+		r.Get("/cards/{cardID}/review-preview", server.getReviewPreview)
 		r.Put("/cards/{cardID}", server.updateCard)
 		r.Delete("/cards/{cardID}", server.deleteCard)
 		r.Post("/cards/{cardID}/master", server.masterCard)

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MeView: View {
-    let onClose: () -> Void
+    var onClose: (() -> Void)?
 
     @State private var summary: MeSummary?
     @State private var isLoading = false
@@ -9,45 +9,47 @@ struct MeView: View {
     @AppStorage(Theme.storageKey) private var selectedTheme = AppThemeChoice.forest.rawValue
 
     var body: some View {
-        ZStack {
-            ScreenBackground()
-
-            VStack(spacing: 0) {
-                header
-
-                if isLoading {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                } else if let summary {
-                    ScrollView(showsIndicators: false) {
-                        VStack(spacing: 16) {
-                            profileCard(summary)
-                            settingsCard
-                            statsGrid(summary)
-                            activityCard(summary)
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    if isLoading {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
                         }
-                        .padding(.horizontal, 18)
-                        .padding(.top, 10)
-                        .padding(.bottom, 30)
+                        .padding(.top, 40)
+                    } else if let summary {
+                        learningStatistics(summary)
+                        profileCard(summary)
+                        settingsCard
+                    } else {
+                        emptyState
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 80)
                     }
-                } else {
-                    Spacer()
-                    emptyState
-                    Spacer()
-                }
-            }
 
-            if let errorMessage {
-                VStack {
-                    Spacer()
-                    Text(errorMessage)
-                        .font(AppFont.regular(13))
-                        .foregroundStyle(Theme.red)
-                        .padding(12)
-                        .background(Theme.paper)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .padding()
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 13))
+                            .foregroundStyle(AppSurface.coral)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, 8)
+                    }
+                }
+                .padding(24)
+            }
+            .background(AppSurface.background.ignoresSafeArea())
+            .navigationTitle("Me")
+            .toolbar {
+                if let onClose {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            onClose()
+                        } label: {
+                            Image(systemName: "chevron.left")
+                        }
+                    }
                 }
             }
         }
@@ -56,152 +58,92 @@ struct MeView: View {
         }
     }
 
-    private var header: some View {
-        HStack {
-            Button {
-                onClose()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 21, weight: .medium))
-                    .foregroundStyle(Theme.green)
-                    .frame(width: 42, height: 42)
-                    .background(.white.opacity(0.58))
-                    .clipShape(Circle())
+    private func learningStatistics(_ summary: MeSummary) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHeader("Learning statistics", icon: "chart.bar.fill", tint: AppSurface.purple)
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
+                StatTile(title: "Today", value: "\(summary.reviewedToday)", note: "reviewed")
+                StatTile(title: "Due", value: "\(summary.dueCount)", note: "waiting")
+                StatTile(title: "Cards", value: "\(summary.totalCards)", note: "total")
+                StatTile(title: "Mastered", value: "\(summary.masteredCount)", note: "done")
             }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            Text("Me")
-                .font(AppFont.medium(18))
-                .foregroundStyle(Theme.text)
-
-            Spacer()
-
-            Color.clear
-                .frame(width: 42, height: 42)
         }
-        .padding(.horizontal, 22)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
+        .padding(18)
+        .appPanel()
     }
 
     private func profileCard(_ summary: MeSummary) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHeader("Personal profile", icon: "person.crop.circle.fill", tint: AppSurface.green)
+
             HStack(spacing: 14) {
                 Text(initial(summary.user.name))
-                    .font(AppFont.medium(28))
+                    .font(.system(size: 26, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 64, height: 64)
-                    .background(
-                        LinearGradient(
-                            colors: [Theme.green, Theme.green2],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .frame(width: 62, height: 62)
+                    .background(AppSurface.dark)
                     .clipShape(Circle())
-                    .shadow(color: Theme.green.opacity(0.24), radius: 24, y: 10)
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text(summary.user.name)
-                        .font(AppFont.medium(23))
-                        .foregroundStyle(Theme.text)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(AppSurface.text)
                     Text(summary.user.email)
-                        .font(AppFont.regular(13))
-                        .foregroundStyle(Theme.muted)
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppSurface.muted)
                     Text("\(summary.totalReviewed) total reviews")
-                        .font(AppFont.medium(12))
-                        .foregroundStyle(Theme.green)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Theme.greenSoft)
-                        .clipShape(Capsule())
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AppSurface.green)
                 }
 
                 Spacer()
             }
         }
         .padding(18)
-        .appCard()
+        .appPanel()
     }
 
     private var settingsCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Settings")
-                    .font(AppFont.medium(17))
-                    .foregroundStyle(Theme.text)
-                Spacer()
-                Image(systemName: "paintpalette")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(Theme.green)
-            }
+            sectionHeader("System settings", icon: "gearshape.fill", tint: AppSurface.sky)
 
-            VStack(spacing: 8) {
-                ForEach(AppThemeChoice.allCases) { theme in
-                    Button {
-                        selectedTheme = theme.rawValue
-                    } label: {
-                        ThemeOptionRow(theme: theme, isSelected: selectedTheme == theme.rawValue)
-                    }
-                    .buttonStyle(.plain)
+            ForEach(AppThemeChoice.allCases) { theme in
+                Button {
+                    selectedTheme = theme.rawValue
+                } label: {
+                    ThemeOptionRow(theme: theme, isSelected: selectedTheme == theme.rawValue)
                 }
+                .buttonStyle(.plain)
             }
         }
         .padding(18)
-        .appCard()
+        .appPanel()
     }
 
-    private func statsGrid(_ summary: MeSummary) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
-            StatTile(title: "Today", value: "\(summary.reviewedToday)", note: "reviewed")
-            StatTile(title: "Streak", value: "\(summary.currentStreak)", note: "days")
-            StatTile(title: "Due", value: "\(summary.dueCount)", note: "waiting")
-            StatTile(title: "Mastered", value: "\(summary.masteredCount)", note: "done")
+    private func sectionHeader(_ title: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+                .background(tint.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+            Text(title)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(AppSurface.text)
         }
-    }
-
-    private func activityCard(_ summary: MeSummary) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Recent activity")
-                    .font(AppFont.medium(17))
-                    .foregroundStyle(Theme.text)
-                Spacer()
-                Text("28 days")
-                    .font(AppFont.regular(12))
-                    .foregroundStyle(Theme.muted)
-            }
-
-            ActivityGrid(days: summary.recentActivity)
-
-            HStack(spacing: 6) {
-                Text("Less")
-                    .font(AppFont.regular(11))
-                    .foregroundStyle(Theme.muted)
-                ForEach(0..<5, id: \.self) { level in
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(activityColor(level: level))
-                        .frame(width: 12, height: 12)
-                }
-                Text("More")
-                    .font(AppFont.regular(11))
-                    .foregroundStyle(Theme.muted)
-            }
-        }
-        .padding(18)
-        .appCard()
     }
 
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "person.crop.circle")
                 .font(.system(size: 42, weight: .medium))
-                .foregroundStyle(Theme.green.opacity(0.70))
+                .foregroundStyle(AppSurface.accent)
             Text("Could not load profile")
-                .font(AppFont.medium(20))
-                .foregroundStyle(Theme.text)
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(AppSurface.text)
             Button("Try again") {
                 Task {
                     await loadSummary()
@@ -241,22 +183,23 @@ private struct StatTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(AppFont.regular(12))
-                .foregroundStyle(Theme.muted)
+                .font(.system(size: 12))
+                .foregroundStyle(AppSurface.muted)
             Text(value)
-                .font(AppFont.medium(28))
-                .foregroundStyle(Theme.text)
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(AppSurface.text)
+                .monospacedDigit()
             Text(note)
-                .font(AppFont.regular(12))
-                .foregroundStyle(Theme.green)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppSurface.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Theme.paper.opacity(0.92))
+        .background(AppSurface.cardSubtle)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Theme.green.opacity(0.09), lineWidth: 1)
+                .stroke(AppSurface.line, lineWidth: 1)
         )
     }
 }
@@ -282,26 +225,26 @@ private struct ThemeOptionRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(theme.title)
-                    .font(AppFont.regular(14))
-                    .foregroundStyle(Theme.text)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(AppSurface.text)
                 Text(theme.subtitle)
-                    .font(AppFont.regular(11))
-                    .foregroundStyle(Theme.muted)
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppSurface.muted)
             }
 
             Spacer()
 
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 18, weight: .regular))
-                .foregroundStyle(isSelected ? Theme.green : Theme.muted.opacity(0.36))
+                .foregroundStyle(isSelected ? AppSurface.accent : AppSurface.muted.opacity(0.36))
         }
         .padding(.horizontal, 12)
-        .frame(minHeight: 50)
-        .background(isSelected ? Theme.greenSoft.opacity(0.82) : Color.white.opacity(0.34))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .frame(minHeight: 52)
+        .background(isSelected ? AppSurface.accentSoft : AppSurface.cardSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(isSelected ? Theme.green.opacity(0.16) : Theme.line.opacity(0.70), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(isSelected ? AppSurface.accent.opacity(0.14) : AppSurface.line, lineWidth: 1)
         )
     }
 
@@ -330,49 +273,15 @@ private struct ThemeOptionRow: View {
     }
 }
 
-private struct ActivityGrid: View {
-    let days: [ActivityDay]
-
-    private let rows = Array(repeating: GridItem(.fixed(14), spacing: 5), count: 7)
-
-    var body: some View {
-        LazyHGrid(rows: rows, spacing: 5) {
-            ForEach(days) { day in
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(activityColor(count: day.count))
-                    .frame(width: 14, height: 14)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .stroke(Theme.green.opacity(day.count == 0 ? 0.08 : 0), lineWidth: 1)
-                    )
-                    .accessibilityLabel("\(day.date), \(day.count) reviews")
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private func activityColor(count: Int) -> Color {
-    switch count {
-    case 0:
-        return Theme.line.opacity(0.74)
-    case 1:
-        return Theme.greenSoft
-    case 2:
-        return Theme.green.opacity(0.46)
-    case 3...4:
-        return Theme.green.opacity(0.74)
-    default:
-        return Theme.green
-    }
-}
-
-private func activityColor(level: Int) -> Color {
-    switch level {
-    case 0: return activityColor(count: 0)
-    case 1: return activityColor(count: 1)
-    case 2: return activityColor(count: 2)
-    case 3: return activityColor(count: 3)
-    default: return activityColor(count: 5)
+private extension View {
+    func appPanel() -> some View {
+        self
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(AppSurface.line, lineWidth: 1)
+            )
+            .shadow(color: AppSurface.shadow.opacity(0.06), radius: 18, x: 0, y: 10)
     }
 }
