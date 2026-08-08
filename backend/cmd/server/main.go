@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"memory-app/backend/internal/api"
+	"memory-app/backend/internal/auth"
 	"memory-app/backend/internal/config"
 	"memory-app/backend/internal/db"
 )
@@ -33,10 +34,14 @@ func main() {
 	if err := db.EnsureDemoData(ctx, pool); err != nil {
 		log.Fatalf("ensure demo data: %v", err)
 	}
+	authService, err := auth.NewService(pool, cfg.Auth)
+	if err != nil {
+		log.Fatalf("configure auth: %v", err)
+	}
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           api.NewServer(pool),
+		Handler:           api.NewServer(pool, authService),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

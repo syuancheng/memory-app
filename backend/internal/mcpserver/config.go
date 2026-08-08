@@ -4,6 +4,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"memory-app/backend/internal/auth"
 )
 
 type Config struct {
@@ -19,6 +21,7 @@ type Config struct {
 	OAuthOwnerPassword           string
 	OAuthTokenSecret             string
 	OAuthAllowedRedirectPrefixes []string
+	Auth                         auth.Config
 }
 
 func FromEnv() Config {
@@ -36,6 +39,25 @@ func FromEnv() Config {
 		OAuthOwnerPassword:           strings.TrimSpace(os.Getenv("MEMORY_MCP_OWNER_PASSWORD")),
 		OAuthTokenSecret:             env("MEMORY_MCP_OAUTH_TOKEN_SECRET", authToken),
 		OAuthAllowedRedirectPrefixes: splitCSV(env("MEMORY_MCP_OAUTH_ALLOWED_REDIRECT_PREFIXES", "https://chatgpt.com/connector/oauth/")),
+		Auth: auth.Config{
+			TokenSecret: env("AUTH_TOKEN_SECRET", env("MEMORY_MCP_OAUTH_TOKEN_SECRET", authToken)),
+			DevCodeLog:  envBool("AUTH_DEV_CODE_LOG", false),
+			SMTP: auth.SMTPConfig{
+				Host: strings.TrimSpace(os.Getenv("SMTP_HOST")),
+				Port: env("SMTP_PORT", "587"),
+				User: strings.TrimSpace(os.Getenv("SMTP_USER")),
+				Pass: os.Getenv("SMTP_PASS"),
+				From: strings.TrimSpace(os.Getenv("SMTP_FROM")),
+			},
+			Apple: auth.AppleConfig{
+				TeamID:        strings.TrimSpace(os.Getenv("APPLE_TEAM_ID")),
+				KeyID:         strings.TrimSpace(os.Getenv("APPLE_KEY_ID")),
+				PrivateKey:    strings.TrimSpace(os.Getenv("APPLE_PRIVATE_KEY")),
+				IOSBundleID:   env("APPLE_IOS_BUNDLE_ID", "com.siyuancheng.MemoryApp"),
+				WebServicesID: strings.TrimSpace(os.Getenv("APPLE_WEB_SERVICES_ID")),
+				RedirectURI:   strings.TrimSpace(os.Getenv("APPLE_REDIRECT_URI")),
+			},
+		},
 	}
 }
 

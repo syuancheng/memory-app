@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import AuthGate from "@/components/AuthGate";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,32 +12,34 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <div className="appShell">
-          <header className="topbar">
-            <div className="brand">
-              <Link className="brandMark" href="/cards">
-                M
-              </Link>
-              <div>
-                <strong>Cardly</strong>
-                <span>AI flashcards for active recall</span>
+        <AuthGate>
+          <div className="appShell">
+            <header className="topbar">
+              <div className="brand">
+                <Link className="brandMark" href="/cards">
+                  C
+                </Link>
+                <div>
+                  <strong>Cardly</strong>
+                  <span>AI flashcards for active recall</span>
+                </div>
               </div>
-            </div>
-            <nav className="topnav" aria-label="Primary navigation">
-              <Link href="/cards">Library</Link>
-              <Link href="/subjects">Subjects</Link>
-            </nav>
-            <div className="topbarActions">
-              <Link className="ghostButton" href="/cards">
-                Search sets
-              </Link>
-              <Link className="primaryButton" href="/cards/new">
-                Create
-              </Link>
-            </div>
-          </header>
-          <main className="main">{children}</main>
-        </div>
+              <nav className="topnav" aria-label="Primary navigation">
+                <Link href="/cards">Library</Link>
+                <Link href="/subjects">Subjects</Link>
+              </nav>
+              <div className="topbarActions">
+                <Link className="ghostButton" href="/cards">
+                  Search sets
+                </Link>
+                <Link className="primaryButton" href="/cards/new">
+                  Create
+                </Link>
+              </div>
+            </header>
+            <main className="main">{children}</main>
+          </div>
+        </AuthGate>
       </body>
     </html>
   );

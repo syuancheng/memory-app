@@ -77,7 +77,8 @@ func TestOAuthMetadataAndAuthorizationCodeFlow(t *testing.T) {
 	if tokenResponse.TokenType != "Bearer" || tokenResponse.AccessToken == "" {
 		t.Fatalf("unexpected token response: %+v", tokenResponse)
 	}
-	if !server.ValidAccessToken(tokenResponse.AccessToken) {
+	userID, ok := server.ValidAccessToken(tokenResponse.AccessToken)
+	if !ok || userID != "00000000-0000-0000-0000-000000000001" {
 		t.Fatal("issued access token is not valid")
 	}
 
@@ -205,7 +206,7 @@ func TestOAuthAuthMiddleware(t *testing.T) {
 		t.Fatalf("static token status = %d", recorder.Code)
 	}
 
-	token, err := server.issueAccessToken("", "https://mcp.siyuancheng.com/mcp")
+	token, err := server.issueAccessToken("", "https://mcp.siyuancheng.com/mcp", "00000000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("issue token: %v", err)
 	}
@@ -217,11 +218,11 @@ func TestOAuthAuthMiddleware(t *testing.T) {
 		t.Fatalf("oauth token status = %d", recorder.Code)
 	}
 
-	wrongAudience, err := server.issueAccessToken("", "https://mcp.siyuancheng.com")
+	wrongAudience, err := server.issueAccessToken("", "https://mcp.siyuancheng.com", "00000000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("issue wrong audience token: %v", err)
 	}
-	if server.ValidAccessToken(wrongAudience) {
+	if _, ok := server.ValidAccessToken(wrongAudience); ok {
 		t.Fatal("wrong audience token validated")
 	}
 }

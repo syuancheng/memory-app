@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	authpkg "memory-app/backend/internal/auth"
 	"memory-app/backend/internal/db"
 	"memory-app/backend/internal/mcpserver"
 )
@@ -31,6 +32,11 @@ func main() {
 		log.Fatalf("ensure demo user: %v", err)
 	}
 
+	authService, err := authpkg.NewService(pool, cfg.Auth)
+	if err != nil {
+		log.Fatalf("configure auth: %v", err)
+	}
+
 	var oauthServer *mcpserver.OAuthServer
 	if cfg.OAuthEnabled {
 		oauthServer, err = mcpserver.NewOAuthServer(mcpserver.OAuthConfig{
@@ -39,6 +45,7 @@ func main() {
 			OwnerPassword:           cfg.OAuthOwnerPassword,
 			TokenSecret:             cfg.OAuthTokenSecret,
 			AllowedRedirectPrefixes: cfg.OAuthAllowedRedirectPrefixes,
+			AuthService:             authService,
 		})
 		if err != nil {
 			log.Fatalf("configure oauth: %v", err)
@@ -62,6 +69,8 @@ func main() {
 		mux.HandleFunc("/.well-known/openid-configuration", oauthServer.HandleAuthorizationServerMetadata)
 		mux.HandleFunc("/oauth/authorize", oauthServer.HandleAuthorize)
 		mux.HandleFunc("/oauth/token", oauthServer.HandleToken)
+		mux.HandleFunc("/oauth/apple/start", oauthServer.HandleAppleStart)
+		mux.HandleFunc("/oauth/apple/callback", oauthServer.HandleAppleCallback)
 	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

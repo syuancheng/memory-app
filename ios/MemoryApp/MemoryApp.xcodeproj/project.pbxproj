@@ -21,6 +21,8 @@
 		100000000000000000000112 /* OPPOSans-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000213 /* OPPOSans-Medium.ttf */; };
 		100000000000000000000113 /* OPPOSans-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000214 /* OPPOSans-Bold.ttf */; };
 		100000000000000000000114 /* CardsHierarchyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000215 /* CardsHierarchyView.swift */; };
+		100000000000000000000115 /* AuthSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000216 /* AuthSessionStore.swift */; };
+		100000000000000000000116 /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000217 /* AuthView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,6 +42,8 @@
 		100000000000000000000213 /* OPPOSans-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "OPPOSans-Medium.ttf"; sourceTree = "<group>"; };
 		100000000000000000000214 /* OPPOSans-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "OPPOSans-Bold.ttf"; sourceTree = "<group>"; };
 		100000000000000000000215 /* CardsHierarchyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardsHierarchyView.swift; sourceTree = "<group>"; };
+		100000000000000000000216 /* AuthSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionStore.swift; sourceTree = "<group>"; };
+		100000000000000000000217 /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -94,6 +98,7 @@
 			isa = PBXGroup;
 			children = (
 				100000000000000000000203 /* APIClient.swift */,
+				100000000000000000000216 /* AuthSessionStore.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -109,6 +114,7 @@
 				100000000000000000000209 /* ReviewCardView.swift */,
 				100000000000000000000211 /* MeView.swift */,
 				100000000000000000000215 /* CardsHierarchyView.swift */,
+				100000000000000000000217 /* AuthView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -205,6 +211,8 @@
 				100000000000000000000109 /* ReviewCardView.swift in Sources */,
 				100000000000000000000110 /* MeView.swift in Sources */,
 				100000000000000000000114 /* CardsHierarchyView.swift in Sources */,
+				100000000000000000000115 /* AuthSessionStore.swift in Sources */,
+				100000000000000000000116 /* AuthView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -294,6 +302,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = MemoryApp/MemoryApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -319,6 +328,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = MemoryApp/MemoryApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";

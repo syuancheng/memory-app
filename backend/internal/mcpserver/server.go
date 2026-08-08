@@ -20,6 +20,8 @@ import (
 
 const maxBatchCards = 100
 
+type mcpUserIDKey struct{}
+
 type ServerConfig struct {
 	AuthToken      string
 	AllowedHosts   []string
@@ -108,14 +110,18 @@ type SetSummary struct {
 }
 
 func (t *Tools) GetSubjectsSets(ctx context.Context, _ *mcp.CallToolRequest, _ EmptyInput) (*mcp.CallToolResult, GetSubjectsSetsOutput, error) {
-	subjects, err := t.listSubjects(ctx)
+	userID, err := userIDFromContext(ctx)
+	if err != nil {
+		return nil, GetSubjectsSetsOutput{}, err
+	}
+	subjects, err := t.listSubjects(ctx, userID)
 	if err != nil {
 		return nil, GetSubjectsSetsOutput{}, err
 	}
 
 	output := GetSubjectsSetsOutput{Subjects: make([]SubjectWithSets, 0, len(subjects))}
 	for _, subject := range subjects {
-		sets, err := t.listSets(ctx, subject.ID)
+		sets, err := t.listSets(ctx, userID, subject.ID)
 		if err != nil {
 			return nil, GetSubjectsSetsOutput{}, err
 		}
@@ -182,6 +188,10 @@ type FailedCardSummary struct {
 }
 
 func (t *Tools) AddCards(ctx context.Context, _ *mcp.CallToolRequest, input AddCardsInput) (*mcp.CallToolResult, AddCardsOutput, error) {
+	userID, err := userIDFromContext(ctx)
+	if err != nil {
+		return nil, AddCardsOutput{}, err
+	}
 	if len(input.Cards) == 0 {
 		return nil, AddCardsOutput{}, errors.New("cards must contain at least one card")
 	}
@@ -194,7 +204,7 @@ func (t *Tools) AddCards(ctx context.Context, _ *mcp.CallToolRequest, input AddC
 		Failed:  []FailedCardSummary{},
 	}
 	for index, cardInput := range input.Cards {
-		card, err := t.createCard(ctx, cardInput)
+		card, err := t.createCard(ctx, userID, cardInput)
 		if err != nil {
 			output.Failed = append(output.Failed, FailedCardSummary{Index: index, Error: err.Error()})
 			continue
@@ -233,6 +243,10 @@ type DeleteCardOutput struct {
 }
 
 func (t *Tools) DeleteCard(ctx context.Context, _ *mcp.CallToolRequest, input DeleteCardInput) (*mcp.CallToolResult, DeleteCardOutput, error) {
+	userID, err := userIDFromContext(ctx)
+	if err != nil {
+		return nil, DeleteCardOutput{}, err
+	}
 	cardID := strings.TrimSpace(input.CardID)
 	if cardID == "" {
 		return nil, DeleteCardOutput{}, errors.New("card_id is required")
@@ -241,7 +255,7 @@ func (t *Tools) DeleteCard(ctx context.Context, _ *mcp.CallToolRequest, input De
 	commandTag, err := t.pool.Exec(ctx, `
 		UPDATE cards SET deleted_at = now(), updated_at = now()
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-	`, cardID, db.DemoUserID)
+	`, cardID, userID)
 	if err != nil {
 		return nil, DeleteCardOutput{}, err
 	}
@@ -260,7 +274,7 @@ func (t *Tools) DeleteCard(ctx context.Context, _ *mcp.CallToolRequest, input De
 	return nil, DeleteCardOutput{Status: "deleted", CardID: cardID}, nil
 }
 
-func (t *Tools) listSubjects(ctx context.Context) ([]model.Subject, error) {
+func (t *Tools) listSubjects(ctx context.Context, userID string) ([]model.Subject, error) {
 	rows, err := t.pool.Query(ctx, `
 		SELECT s.id::text, s.name,
 		       COUNT(DISTINCT c.id)::int AS card_count,
@@ -273,7 +287,7 @@ func (t *Tools) listSubjects(ctx context.Context) ([]model.Subject, error) {
 		WHERE s.user_id = $1 AND s.deleted_at IS NULL
 		GROUP BY s.id, s.name
 		ORDER BY s.name
-	`, db.DemoUserID)
+	`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +304,7 @@ func (t *Tools) listSubjects(ctx context.Context) ([]model.Subject, error) {
 	return subjects, rows.Err()
 }
 
-func (t *Tools) listSets(ctx context.Context, subjectID string) ([]model.Tag, error) {
+func (t *Tools) listSets(ctx context.Context, userID string, subjectID string) ([]model.Tag, error) {
 	rows, err := t.pool.Query(ctx, `
 		SELECT t.id::text, t.subject_id::text, t.name,
 		       COUNT(DISTINCT c.id)::int AS card_count,
@@ -304,7 +318,7 @@ func (t *Tools) listSets(ctx context.Context, subjectID string) ([]model.Tag, er
 		WHERE t.user_id = $1 AND t.subject_id = $2 AND t.deleted_at IS NULL
 		GROUP BY t.id, t.subject_id, t.name
 		ORDER BY t.name
-	`, db.DemoUserID, subjectID)
+	`, userID, subjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +335,7 @@ func (t *Tools) listSets(ctx context.Context, subjectID string) ([]model.Tag, er
 	return sets, rows.Err()
 }
 
-func (t *Tools) createCard(ctx context.Context, input AddCardInput) (model.Card, error) {
+func (t *Tools) createCard(ctx context.Context, userID string, input AddCardInput) (model.Card, error) {
 	input.SubjectID = strings.TrimSpace(input.SubjectID)
 	input.FrontText = strings.TrimSpace(input.FrontText)
 	input.AnswerText = strings.TrimSpace(input.AnswerText)
@@ -375,12 +389,25 @@ func (t *Tools) createCard(ctx context.Context, input AddCardInput) (model.Card,
 	}
 	defer tx.Rollback(ctx)
 
+	var subjectExists bool
+	if err = tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM subjects
+			WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+		)
+	`, input.SubjectID, userID).Scan(&subjectExists); err != nil {
+		return model.Card{}, err
+	}
+	if !subjectExists {
+		return model.Card{}, errors.New("subject not found")
+	}
+
 	_, err = tx.Exec(ctx, `
 		INSERT INTO cards (
 			id, user_id, subject_id, card_type, direction, front_text, answer_text,
 			grammar_phrases, answer_tokens
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb)
-	`, cardID, db.DemoUserID, input.SubjectID, input.CardType, input.Direction, input.FrontText, input.AnswerText, string(grammarJSON), string(tokensJSON))
+	`, cardID, userID, input.SubjectID, input.CardType, input.Direction, input.FrontText, input.AnswerText, string(grammarJSON), string(tokensJSON))
 	if err != nil {
 		return model.Card{}, err
 	}
@@ -398,6 +425,21 @@ func (t *Tools) createCard(ctx context.Context, input AddCardInput) (model.Card,
 		if setID == "" {
 			return model.Card{}, errors.New("set_ids cannot contain empty values")
 		}
+		var setExists bool
+		if err = tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM tags
+				WHERE id = $1
+				  AND subject_id = $2
+				  AND user_id = $3
+				  AND deleted_at IS NULL
+			)
+		`, setID, input.SubjectID, userID).Scan(&setExists); err != nil {
+			return model.Card{}, err
+		}
+		if !setExists {
+			return model.Card{}, errors.New("set not found")
+		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO card_tags (card_id, tag_id)
 			VALUES ($1, $2)
@@ -412,10 +454,10 @@ func (t *Tools) createCard(ctx context.Context, input AddCardInput) (model.Card,
 		return model.Card{}, err
 	}
 
-	return t.loadCard(ctx, cardID)
+	return t.loadCard(ctx, userID, cardID)
 }
 
-func (t *Tools) loadCard(ctx context.Context, cardID string) (model.Card, error) {
+func (t *Tools) loadCard(ctx context.Context, userID string, cardID string) (model.Card, error) {
 	var card model.Card
 	var grammarBytes []byte
 	var tokenBytes []byte
@@ -426,7 +468,7 @@ func (t *Tools) loadCard(ctx context.Context, cardID string) (model.Card, error)
 		FROM cards c
 		JOIN subjects s ON s.id = c.subject_id
 		WHERE c.id = $1 AND c.user_id = $2 AND c.deleted_at IS NULL
-	`, cardID, db.DemoUserID).Scan(
+	`, cardID, userID).Scan(
 		&card.ID,
 		&card.SubjectID,
 		&card.SubjectName,
@@ -451,21 +493,21 @@ func (t *Tools) loadCard(ctx context.Context, cardID string) (model.Card, error)
 	if err := json.Unmarshal(tokenBytes, &card.AnswerTokens); err != nil {
 		return model.Card{}, err
 	}
-	card.Tags, err = t.loadCardTags(ctx, card.ID)
+	card.Tags, err = t.loadCardTags(ctx, userID, card.ID)
 	if err != nil {
 		return model.Card{}, err
 	}
 	return card, nil
 }
 
-func (t *Tools) loadCardTags(ctx context.Context, cardID string) ([]model.Tag, error) {
+func (t *Tools) loadCardTags(ctx context.Context, userID string, cardID string) ([]model.Tag, error) {
 	rows, err := t.pool.Query(ctx, `
 		SELECT t.id::text, t.subject_id::text, t.name, 0, 0
 		FROM tags t
 		JOIN card_tags ct ON ct.tag_id = t.id
-		WHERE ct.card_id = $1 AND t.deleted_at IS NULL
+		WHERE ct.card_id = $1 AND t.user_id = $2 AND t.deleted_at IS NULL
 		ORDER BY t.name
-	`, cardID)
+	`, cardID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -490,11 +532,20 @@ func withAuth(token string, oauthServer *OAuthServer, next http.Handler) http.Ha
 		bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 		headerToken := strings.TrimSpace(r.Header.Get("X-Memory-Mcp-Token"))
 		if token != "" && (bearer == token || headerToken == token) {
-			next.ServeHTTP(w, r)
+			ctx := context.WithValue(r.Context(), mcpUserIDKey{}, db.DemoUserID)
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
-		if oauthServer != nil && oauthServer.ValidAccessToken(bearer) {
-			next.ServeHTTP(w, r)
+		if oauthServer != nil {
+			if userID, ok := oauthServer.ValidAccessToken(bearer); ok {
+				ctx := context.WithValue(r.Context(), mcpUserIDKey{}, userID)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+		}
+		if token == "" && oauthServer == nil {
+			ctx := context.WithValue(r.Context(), mcpUserIDKey{}, db.DemoUserID)
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
 		if oauthServer != nil {
@@ -503,6 +554,15 @@ func withAuth(token string, oauthServer *OAuthServer, next http.Handler) http.Ha
 		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	})
+}
+
+func userIDFromContext(ctx context.Context) (string, error) {
+	userID, _ := ctx.Value(mcpUserIDKey{}).(string)
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return "", errors.New("authenticated user is required")
+	}
+	return userID, nil
 }
 
 func withCORS(allowedOrigins []string, next http.Handler) http.Handler {

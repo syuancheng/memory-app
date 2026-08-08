@@ -41,6 +41,55 @@ a {
   min-height: 100vh;
 }
 
+.authScreen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--app-space-6);
+  background:
+    radial-gradient(circle at 24% 14%, rgba(var(--app-color-white-rgb), 0.9), transparent 32%),
+    var(--app-color-bg);
+}
+
+.authCard {
+  width: min(440px, 100%);
+  border: 1px solid var(--app-color-line);
+  background: var(--app-color-surface);
+  border-radius: var(--app-radius-card);
+  box-shadow: var(--app-shadow-card);
+  padding: var(--app-space-8);
+  display: grid;
+  gap: var(--app-space-5);
+}
+
+.authCard h1 {
+  font-size: clamp(2.2rem, 7vw, 3.4rem);
+}
+
+.authMessage {
+  color: var(--app-color-text-muted);
+  font-size: var(--app-font-size-sm);
+  font-weight: var(--app-weight-medium);
+}
+
+.sessionBar {
+  min-height: 36px;
+  padding: 0 var(--app-page-gutter);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--app-space-3);
+  border-bottom: 1px solid var(--app-color-line);
+  background: rgba(var(--app-color-white-rgb), 0.74);
+  color: var(--app-color-text-muted);
+  font-size: var(--app-font-size-xs);
+}
+
+.sessionBar .ghost {
+  min-height: 28px;
+  padding: 0 var(--app-space-3);
+}
+
 .topbar {
   min-height: 76px;
   border-bottom: 1px solid var(--app-color-line);

@@ -15,6 +15,7 @@ struct MeView: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 24) {
+                        pageTitle
                         userHeader
                         achievementsSection
                         profileSection
@@ -66,6 +67,13 @@ struct MeView: View {
         .task {
             await loadSummary()
         }
+    }
+
+    private var pageTitle: some View {
+        Text("Me")
+            .font(.system(size: 38, weight: .bold))
+            .foregroundStyle(AppSurface.text)
+            .padding(.top, 4)
     }
 
     private var userHeader: some View {
@@ -121,14 +129,14 @@ struct MeView: View {
     private var profileSection: some View {
         MeGroupedSection(title: "Profile") {
             NavigationLink(value: MeDestination.account) {
-                MeSettingsRow(title: "Account")
+                MeSettingsRow(title: "Account", icon: "person.fill")
             }
             .buttonStyle(.plain)
 
             MeSeparator()
 
             NavigationLink(value: MeDestination.connectedAccounts) {
-                MeSettingsRow(title: "Connected Accounts")
+                MeSettingsRow(title: "Connected Accounts", icon: "link")
             }
             .buttonStyle(.plain)
         }
@@ -137,35 +145,35 @@ struct MeView: View {
     private var settingsSection: some View {
         MeGroupedSection(title: "Settings") {
             NavigationLink(value: MeDestination.learningPreferences) {
-                MeSettingsRow(title: "Learning Preferences")
+                MeSettingsRow(title: "Learning Preferences", icon: "slider.horizontal.3")
             }
             .buttonStyle(.plain)
 
             MeSeparator()
 
             NavigationLink(value: MeDestination.notifications) {
-                MeSettingsRow(title: "Notifications")
+                MeSettingsRow(title: "Notifications", icon: "bell.fill")
             }
             .buttonStyle(.plain)
 
             MeSeparator()
 
             NavigationLink(value: MeDestination.appearance) {
-                MeSettingsRow(title: "Appearance")
+                MeSettingsRow(title: "Appearance", icon: "textformat.size")
             }
             .buttonStyle(.plain)
 
             MeSeparator()
 
             NavigationLink(value: MeDestination.privacyData) {
-                MeSettingsRow(title: "Privacy & Data")
+                MeSettingsRow(title: "Privacy & Data", icon: "lock.shield.fill")
             }
             .buttonStyle(.plain)
 
             MeSeparator()
 
             NavigationLink(value: MeDestination.about) {
-                MeSettingsRow(title: "About")
+                MeSettingsRow(title: "About", icon: "info.circle.fill")
             }
             .buttonStyle(.plain)
         }
@@ -265,10 +273,16 @@ private struct MonthlyAchievementsPage: View {
 }
 
 private struct AccountPage: View {
+    @EnvironmentObject private var session: AuthSessionStore
+
     let summary: MeSummary?
 
     @State private var showingDeleteConfirmation = false
     @State private var statusMessage: String?
+    @State private var deleteCode = ""
+    @State private var deleteCodeRequested = false
+    @State private var isWorking = false
+    @State private var errorMessage: String?
 
     private var name: String {
         let name = summary?.user.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -278,6 +292,10 @@ private struct AccountPage: View {
     private var email: String {
         let email = summary?.user.email.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return email.isEmpty ? "demo@example.com" : email
+    }
+
+    private var isAppleAccount: Bool {
+        summary?.user.provider == "apple"
     }
 
     var body: some View {
@@ -291,6 +309,11 @@ private struct AccountPage: View {
                 }
 
                 MeGroupedSection(title: "Account Info") {
+                    if isAppleAccount {
+                        MeValueRow(title: "Apple Account", value: "Signed in with Apple")
+                        MeSeparator()
+                    }
+
                     NavigationLink(value: MeDestination.accountEdit(.username)) {
                         MeValueRow(title: "Username", value: name, showsChevron: true)
                     }
@@ -313,7 +336,9 @@ private struct AccountPage: View {
 
                 MeGroupedSection(title: "Account Actions") {
                     Button {
-                        statusMessage = "Log out is coming later."
+                        Task {
+                            await session.logout()
+                        }
                     } label: {
                         MePlainActionRow(title: "Log Out")
                     }
@@ -335,15 +360,131 @@ private struct AccountPage: View {
                         .foregroundStyle(AppSurface.muted)
                         .padding(.horizontal, 2)
                 }
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(AppSurface.coral)
+                        .padding(.horizontal, 2)
+                }
             }
         }
         .confirmationDialog("Delete account?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
-            Button("Delete Account", role: .destructive) {
-                statusMessage = "Account deletion is coming later."
+            Button(isAppleAccount ? "Delete Account" : "Send Delete Code", role: .destructive) {
+                Task {
+                    if isAppleAccount {
+                        await deleteAccount()
+                    } else {
+                        await requestDeleteCode()
+                    }
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This action may permanently remove your account and learning data.")
+        }
+        .sheet(isPresented: $deleteCodeRequested) {
+            DeleteAccountCodeSheet(
+                email: email,
+                code: $deleteCode,
+                isWorking: isWorking,
+                onCancel: {
+                    deleteCodeRequested = false
+                    deleteCode = ""
+                },
+                onDelete: {
+                    Task {
+                        await deleteAccount()
+                    }
+                }
+            )
+            .presentationDetents([.height(300)])
+        }
+    }
+
+    private func requestDeleteCode() async {
+        isWorking = true
+        statusMessage = nil
+        errorMessage = nil
+        do {
+            try await session.requestDeleteAccountCode()
+            deleteCode = ""
+            deleteCodeRequested = true
+            statusMessage = "Delete code sent to \(email)."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isWorking = false
+    }
+
+    private func deleteAccount() async {
+        isWorking = true
+        errorMessage = nil
+        do {
+            try await session.deleteAccount(email: email, code: deleteCode)
+            deleteCodeRequested = false
+            deleteCode = ""
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isWorking = false
+    }
+}
+
+private struct DeleteAccountCodeSheet: View {
+    let email: String
+    @Binding var code: String
+    let isWorking: Bool
+    let onCancel: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        ZStack {
+            AppSurface.background
+                .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Delete Account")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(AppSurface.text)
+
+                Text("Enter the verification code sent to \(email).")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(AppSurface.muted)
+
+                TextField("6-digit code", text: $code)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .font(.system(size: 16, weight: .regular))
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 52)
+                    .background(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(AppSurface.line, lineWidth: 1)
+                    )
+
+                HStack(spacing: 12) {
+                    Button("Cancel") {
+                        onCancel()
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button(role: .destructive) {
+                        onDelete()
+                    } label: {
+                        if isWorking {
+                            ProgressView()
+                        } else {
+                            Text("Delete")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isWorking || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .padding(24)
         }
     }
 }
@@ -654,44 +795,52 @@ private struct MeGroupedSection<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             if let title {
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(AppSurface.muted)
+                    .font(.system(size: 21, weight: .bold))
+                    .foregroundStyle(AppSurface.text)
                     .padding(.leading, 2)
             }
 
             VStack(spacing: 0) {
                 content()
             }
-            .background(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(AppSurface.grouped)
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(AppSurface.line, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(Color.white.opacity(0.72), lineWidth: 1)
             )
+            .shadow(color: AppSurface.shadow.opacity(0.035), radius: 16, x: 0, y: 10)
         }
     }
 }
 
 private struct MeSettingsRow: View {
     let title: String
+    var icon: String?
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
+            if let icon {
+                MeIconBadge(systemName: icon)
+            }
+
             Text(title)
-                .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(AppSurface.text)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(AppSurface.iconAccent)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
 
             Spacer(minLength: 12)
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(AppSurface.muted.opacity(0.45))
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(AppSurface.muted.opacity(0.42))
         }
-        .frame(minHeight: 56)
-        .padding(.horizontal, 16)
+        .frame(minHeight: 64)
+        .padding(.horizontal, 18)
         .contentShape(Rectangle())
     }
 }
@@ -702,10 +851,12 @@ private struct MeValueRow: View {
     var showsChevron = false
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             Text(title)
                 .font(.system(size: 16, weight: .regular))
                 .foregroundStyle(AppSurface.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
 
             Spacer(minLength: 12)
 
@@ -713,15 +864,16 @@ private struct MeValueRow: View {
                 .font(.system(size: 15, weight: .regular))
                 .foregroundStyle(AppSurface.muted)
                 .lineLimit(1)
+                .minimumScaleFactor(0.78)
 
             if showsChevron {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppSurface.muted.opacity(0.45))
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(AppSurface.muted.opacity(0.42))
             }
         }
-        .frame(minHeight: 56)
-        .padding(.horizontal, 16)
+        .frame(minHeight: 64)
+        .padding(.horizontal, 18)
         .contentShape(Rectangle())
     }
 }
@@ -745,11 +897,11 @@ private struct AvatarSettingsRow: View {
                 .clipShape(Circle())
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(AppSurface.muted.opacity(0.45))
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(AppSurface.muted.opacity(0.42))
         }
-        .frame(minHeight: 60)
-        .padding(.horizontal, 16)
+        .frame(minHeight: 66)
+        .padding(.horizontal, 18)
         .contentShape(Rectangle())
     }
 }
@@ -766,18 +918,31 @@ private struct MePlainActionRow: View {
 
             Spacer()
         }
-        .frame(minHeight: 56)
-        .padding(.horizontal, 16)
+        .frame(minHeight: 64)
+        .padding(.horizontal, 18)
         .contentShape(Rectangle())
+    }
+}
+
+private struct MeIconBadge: View {
+    let systemName: String
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(AppSurface.iconAccent)
+            .frame(width: 34, height: 34)
+            .background(AppSurface.iconSoft)
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
     }
 }
 
 private struct MeSeparator: View {
     var body: some View {
         Rectangle()
-            .fill(AppSurface.line)
+            .fill(AppSurface.line.opacity(0.86))
             .frame(height: 1)
-            .padding(.leading, 16)
+            .padding(.leading, 18)
     }
 }
 

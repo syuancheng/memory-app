@@ -153,8 +153,27 @@ struct MeSummary: Codable {
 }
 
 struct MeUser: Codable, Hashable {
+    let id: String?
     let name: String
     let email: String
+    let provider: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case email
+        case provider
+    }
+}
+
+struct AuthResponse: Codable, Hashable {
+    let user: MeUser
+    let sessionToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case user
+        case sessionToken = "session_token"
+    }
 }
 
 struct ActivityDay: Identifiable, Codable, Hashable {

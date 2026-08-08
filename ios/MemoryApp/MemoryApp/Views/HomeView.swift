@@ -861,16 +861,20 @@ private struct ScalePressStyle: ButtonStyle {
 }
 
 enum AppSurface {
-    static let background = Color(hex: 0xFFFFFF)
-    static let cardSubtle = Color(hex: 0xF8FAFC)
+    static let background = Color(hex: 0xFBFBFC)
+    static let cardSubtle = Color(hex: 0xF4F5F7)
+    static let grouped = Color(hex: 0xF1F2F5)
+    static let floating = Color(hex: 0xFFFFFF)
     static let text = Color(hex: 0x111827)
     static let textSecondary = Color(hex: 0x374151)
     static let muted = Color(hex: 0x6B7280)
-    static let line = Color(hex: 0xE5E7EB)
+    static let line = Color(hex: 0xE7E8EC)
     static let shadow = Color(hex: 0x171C2E)
     static let dark = Color(hex: 0x111827)
     static let accent = Color(hex: 0x4F46E5)
     static let accentSoft = Color(hex: 0xEEF2FF)
+    static let iconAccent = Color(hex: 0x3F6D84)
+    static let iconSoft = Color(hex: 0xE9EEF2)
     static let purple = Color(hex: 0x7C3AED)
     static let purpleSoft = Color(hex: 0xF7F3FF)
     static let indigoLight = Color(hex: 0xA5B4FC)

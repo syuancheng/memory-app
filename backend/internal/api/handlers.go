@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"memory-app/backend/internal/db"
 	"memory-app/backend/internal/model"
 	"memory-app/backend/internal/scheduler"
 	"memory-app/backend/internal/service"
@@ -60,8 +59,9 @@ type meSummaryResponse struct {
 }
 
 type meUserResponse struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Provider string `json:"provider,omitempty"`
 }
 
 type activityDayResponse struct {
@@ -70,10 +70,12 @@ type activityDayResponse struct {
 }
 
 func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
+	userID := currentUserID(r)
 	var summary meSummaryResponse
 	err := s.db.QueryRow(r.Context(), `
-		SELECT u.name,
-		       u.email,
+		SELECT COALESCE(u.display_name, u.name, ''),
+		       COALESCE(u.primary_email, ac.email, u.email),
+		       COALESCE(ac.provider, 'email'),
 		       COUNT(DISTINCT c.id) FILTER (WHERE c.deleted_at IS NULL)::int AS total_cards,
 		       COUNT(DISTINCT c.id) FILTER (
 		         WHERE c.deleted_at IS NULL
@@ -84,13 +86,15 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 		         WHERE c.deleted_at IS NULL AND rs.status = 'mastered'
 		       )::int AS mastered_count
 		FROM users u
+		LEFT JOIN account_connections ac ON ac.user_id = u.id AND ac.provider = 'apple'
 		LEFT JOIN cards c ON c.user_id = u.id
 		LEFT JOIN review_states rs ON rs.card_id = c.id
 		WHERE u.id = $1
-		GROUP BY u.id, u.name, u.email
-	`, db.DemoUserID).Scan(
+		GROUP BY u.id, u.display_name, u.name, u.primary_email, u.email, ac.email, ac.provider
+	`, userID).Scan(
 		&summary.User.Name,
 		&summary.User.Email,
+		&summary.User.Provider,
 		&summary.TotalCards,
 		&summary.DueCount,
 		&summary.MasteredCount,
@@ -109,7 +113,7 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 		       COUNT(*)::int
 		FROM review_events
 		WHERE user_id = $1
-	`, db.DemoUserID).Scan(&summary.ReviewedToday, &summary.TotalReviewed)
+	`, userID).Scan(&summary.ReviewedToday, &summary.TotalReviewed)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -123,7 +127,7 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 		  ON re.user_id = $1 AND re.created_at::date = day::date
 		GROUP BY day
 		ORDER BY day
-	`, db.DemoUserID)
+	`, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -155,6 +159,7 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSubjects(w http.ResponseWriter, r *http.Request) {
+	userID := currentUserID(r)
 	rows, err := s.db.Query(r.Context(), `
 		SELECT s.id::text, s.name,
 		       COUNT(DISTINCT c.id)::int AS card_count,
@@ -167,7 +172,7 @@ func (s *Server) listSubjects(w http.ResponseWriter, r *http.Request) {
 		WHERE s.user_id = $1 AND s.deleted_at IS NULL
 		GROUP BY s.id, s.name
 		ORDER BY s.name
-	`, db.DemoUserID)
+	`, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -187,6 +192,7 @@ func (s *Server) listSubjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createSubject(w http.ResponseWriter, r *http.Request) {
+	userID := currentUserID(r)
 	var req nameRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
@@ -202,7 +208,7 @@ func (s *Server) createSubject(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO subjects (id, user_id, name)
 		VALUES ($1, $2, $3)
 		RETURNING id::text, name, 0, 0
-	`, id, db.DemoUserID, strings.TrimSpace(req.Name)).Scan(&subject.ID, &subject.Name, &subject.CardCount, &subject.DueCount)
+	`, id, userID, strings.TrimSpace(req.Name)).Scan(&subject.ID, &subject.Name, &subject.CardCount, &subject.DueCount)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -211,6 +217,7 @@ func (s *Server) createSubject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateSubject(w http.ResponseWriter, r *http.Request) {
+	userID := currentUserID(r)
 	var req nameRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
@@ -227,7 +234,7 @@ func (s *Server) updateSubject(w http.ResponseWriter, r *http.Request) {
 		SET name = $1, updated_at = now()
 		WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL
 		RETURNING id::text, name, 0, 0
-	`, strings.TrimSpace(req.Name), chi.URLParam(r, "subjectID"), db.DemoUserID).Scan(
+	`, strings.TrimSpace(req.Name), chi.URLParam(r, "subjectID"), userID).Scan(
 		&subject.ID,
 		&subject.Name,
 		&subject.CardCount,
@@ -245,6 +252,7 @@ func (s *Server) updateSubject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
+	userID := currentUserID(r)
 	subjectID := chi.URLParam(r, "subjectID")
 	tx, err := s.db.Begin(r.Context())
 	if err != nil {
@@ -256,7 +264,7 @@ func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
 	commandTag, err := tx.Exec(r.Context(), `
 		UPDATE subjects SET deleted_at = now(), updated_at = now()
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-	`, subjectID, db.DemoUserID)
+	`, subjectID, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -269,7 +277,7 @@ func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
 	if _, err = tx.Exec(r.Context(), `
 		UPDATE tags SET deleted_at = now(), updated_at = now()
 		WHERE subject_id = $1 AND user_id = $2 AND deleted_at IS NULL
-	`, subjectID, db.DemoUserID); err != nil {
+	`, subjectID, userID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -277,7 +285,7 @@ func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
 	if _, err = tx.Exec(r.Context(), `
 		UPDATE cards SET deleted_at = now(), updated_at = now()
 		WHERE subject_id = $1 AND user_id = $2 AND deleted_at IS NULL
-	`, subjectID, db.DemoUserID); err != nil {
+	`, subjectID, userID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -287,7 +295,7 @@ func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
 		WHERE card_id IN (
 			SELECT id FROM cards WHERE subject_id = $1 AND user_id = $2
 		)
-	`, subjectID, db.DemoUserID); err != nil {
+	`, subjectID, userID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -300,6 +308,7 @@ func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listTags(w http.ResponseWriter, r *http.Request) {
+	userID := currentUserID(r)
 	subjectID := chi.URLParam(r, "subjectID")
 	rows, err := s.db.Query(r.Context(), `
 		SELECT t.id::text, t.subject_id::text, t.name,
@@ -314,7 +323,7 @@ func (s *Server) listTags(w http.ResponseWriter, r *http.Request) {
 		WHERE t.user_id = $1 AND t.subject_id = $2 AND t.deleted_at IS NULL
 		GROUP BY t.id, t.subject_id, t.name
 		ORDER BY t.name
-	`, db.DemoUserID, subjectID)
+	`, userID, subjectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -334,6 +343,7 @@ func (s *Server) listTags(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createTag(w http.ResponseWriter, r *http.Request) {
+	userID := currentUserID(r)
 	subjectID := chi.URLParam(r, "subjectID")
 	var req nameRequest
 	if err := readJSON(r, &req); err != nil {
@@ -344,13 +354,27 @@ func (s *Server) createTag(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	var subjectExists bool
+	if err := s.db.QueryRow(r.Context(), `
+		SELECT EXISTS (
+			SELECT 1 FROM subjects
+			WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+		)
+	`, subjectID, userID).Scan(&subjectExists); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !subjectExists {
+		writeError(w, http.StatusNotFound, "subject not found")
+		return
+	}
 	id := uuid.NewString()
 	var tag model.Tag
 	err := s.db.QueryRow(r.Context(), `
 		INSERT INTO tags (id, user_id, subject_id, name)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id::text, subject_id::text, name, 0, 0
-	`, id, db.DemoUserID, subjectID, strings.TrimSpace(req.Name)).Scan(&tag.ID, &tag.SubjectID, &tag.Name, &tag.CardCount, &tag.DueCount)
+	`, id, userID, subjectID, strings.TrimSpace(req.Name)).Scan(&tag.ID, &tag.SubjectID, &tag.Name, &tag.CardCount, &tag.DueCount)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -359,6 +383,7 @@ func (s *Server) createTag(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateTag(w http.ResponseWriter, r *http.Request) {
+	userID := currentUserID(r)
 	var req nameRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
@@ -375,7 +400,7 @@ func (s *Server) updateTag(w http.ResponseWriter, r *http.Request) {
 		SET name = $1, updated_at = now()
 		WHERE id = $2 AND subject_id = $3 AND user_id = $4 AND deleted_at IS NULL
 		RETURNING id::text, subject_id::text, name, 0, 0
-	`, strings.TrimSpace(req.Name), chi.URLParam(r, "tagID"), chi.URLParam(r, "subjectID"), db.DemoUserID).Scan(
+	`, strings.TrimSpace(req.Name), chi.URLParam(r, "tagID"), chi.URLParam(r, "subjectID"), userID).Scan(
 		&tag.ID,
 		&tag.SubjectID,
 		&tag.Name,
@@ -394,6 +419,7 @@ func (s *Server) updateTag(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
+	userID := currentUserID(r)
 	subjectID := chi.URLParam(r, "subjectID")
 	tagID := chi.URLParam(r, "tagID")
 	tx, err := s.db.Begin(r.Context())
@@ -406,7 +432,7 @@ func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
 	commandTag, err := tx.Exec(r.Context(), `
 		UPDATE tags SET deleted_at = now(), updated_at = now()
 		WHERE id = $1 AND subject_id = $2 AND user_id = $3 AND deleted_at IS NULL
-	`, tagID, subjectID, db.DemoUserID)
+	`, tagID, subjectID, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -424,7 +450,7 @@ func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
 		  AND id IN (
 			SELECT card_id FROM card_tags WHERE tag_id = $3
 		  )
-	`, subjectID, db.DemoUserID, tagID); err != nil {
+	`, subjectID, userID, tagID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -437,7 +463,7 @@ func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
 			JOIN card_tags ct ON ct.card_id = c.id
 			WHERE c.subject_id = $1 AND c.user_id = $2 AND ct.tag_id = $3
 		)
-	`, subjectID, db.DemoUserID, tagID); err != nil {
+	`, subjectID, userID, tagID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -451,6 +477,7 @@ func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listCards(w http.ResponseWriter, r *http.Request) {
 	cards, err := loadCards(r.Context(), s.db, cardFilters{
+		UserID:    currentUserID(r),
 		SubjectID: r.URL.Query().Get("subject_id"),
 		TagIDs:    splitCSV(r.URL.Query().Get("tag_ids")),
 		Search:    r.URL.Query().Get("search"),
@@ -465,7 +492,7 @@ func (s *Server) listCards(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getCard(w http.ResponseWriter, r *http.Request) {
-	cards, err := loadCards(r.Context(), s.db, cardFilters{CardID: chi.URLParam(r, "cardID"), Limit: 1})
+	cards, err := loadCards(r.Context(), s.db, cardFilters{UserID: currentUserID(r), CardID: chi.URLParam(r, "cardID"), Limit: 1})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -478,7 +505,7 @@ func (s *Server) getCard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getReviewPreview(w http.ResponseWriter, r *http.Request) {
-	state, err := loadReviewState(r.Context(), s.db, chi.URLParam(r, "cardID"))
+	state, err := loadReviewState(r.Context(), s.db, currentUserID(r), chi.URLParam(r, "cardID"))
 	if err == pgx.ErrNoRows {
 		writeError(w, http.StatusNotFound, "review state not found")
 		return
@@ -507,7 +534,7 @@ func (s *Server) createCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	card, err := upsertCard(r.Context(), s.db, "", req)
+	card, err := upsertCard(r.Context(), s.db, currentUserID(r), "", req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -521,7 +548,7 @@ func (s *Server) updateCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	card, err := upsertCard(r.Context(), s.db, chi.URLParam(r, "cardID"), req)
+	card, err := upsertCard(r.Context(), s.db, currentUserID(r), chi.URLParam(r, "cardID"), req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -530,10 +557,11 @@ func (s *Server) updateCard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
+	userID := currentUserID(r)
 	commandTag, err := s.db.Exec(r.Context(), `
 		UPDATE cards SET deleted_at = now(), updated_at = now()
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-	`, chi.URLParam(r, "cardID"), db.DemoUserID)
+	`, chi.URLParam(r, "cardID"), userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -554,6 +582,7 @@ func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) masterCard(w http.ResponseWriter, r *http.Request) {
+	userID := currentUserID(r)
 	cardID := chi.URLParam(r, "cardID")
 	commandTag, err := s.db.Exec(r.Context(), `
 		UPDATE review_states
@@ -566,7 +595,7 @@ func (s *Server) masterCard(w http.ResponseWriter, r *http.Request) {
 		    SELECT 1 FROM cards
 		    WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 		  )
-	`, cardID, db.DemoUserID)
+	`, cardID, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -587,6 +616,7 @@ func (s *Server) listDueCards(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	cards, err := loadCards(r.Context(), s.db, cardFilters{
+		UserID:    currentUserID(r),
 		SubjectID: r.URL.Query().Get("subject_id"),
 		TagIDs:    splitCSV(r.URL.Query().Get("tag_ids")),
 		OnlyDue:   true,
@@ -600,6 +630,7 @@ func (s *Server) listDueCards(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) submitReviewResult(w http.ResponseWriter, r *http.Request) {
+	userID := currentUserID(r)
 	var req reviewResultRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
@@ -620,7 +651,7 @@ func (s *Server) submitReviewResult(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	state, err := loadReviewStateForUpdate(r.Context(), tx, req.CardID)
+	state, err := loadReviewStateForUpdate(r.Context(), tx, userID, req.CardID)
 	if err == pgx.ErrNoRows {
 		writeError(w, http.StatusNotFound, "review state not found")
 		return
@@ -636,7 +667,7 @@ func (s *Server) submitReviewResult(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO review_events (
 			id, card_id, user_id, mode, rating, revealed_tokens_count, total_tokens_count
 		) VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, uuid.NewString(), req.CardID, db.DemoUserID, req.Mode, req.Rating, req.RevealedTokensCount, req.TotalTokensCount)
+	`, uuid.NewString(), req.CardID, userID, req.Mode, req.Rating, req.RevealedTokensCount, req.TotalTokensCount)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -664,7 +695,7 @@ func (s *Server) submitReviewResult(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, next)
 }
 
-func loadReviewState(ctx context.Context, pool *pgxpool.Pool, cardID string) (model.ReviewState, error) {
+func loadReviewState(ctx context.Context, pool *pgxpool.Pool, userID string, cardID string) (model.ReviewState, error) {
 	var state model.ReviewState
 	err := pool.QueryRow(ctx, `
 		SELECT rs.card_id::text, rs.status, rs.ease::float8, rs.interval_days, rs.due_at,
@@ -672,7 +703,7 @@ func loadReviewState(ctx context.Context, pool *pgxpool.Pool, cardID string) (mo
 		FROM review_states rs
 		JOIN cards c ON c.id = rs.card_id
 		WHERE rs.card_id = $1 AND c.user_id = $2 AND c.deleted_at IS NULL
-	`, cardID, db.DemoUserID).Scan(
+	`, cardID, userID).Scan(
 		&state.CardID,
 		&state.Status,
 		&state.Ease,
@@ -686,7 +717,7 @@ func loadReviewState(ctx context.Context, pool *pgxpool.Pool, cardID string) (mo
 	return state, err
 }
 
-func loadReviewStateForUpdate(ctx context.Context, tx pgx.Tx, cardID string) (model.ReviewState, error) {
+func loadReviewStateForUpdate(ctx context.Context, tx pgx.Tx, userID string, cardID string) (model.ReviewState, error) {
 	var state model.ReviewState
 	err := tx.QueryRow(ctx, `
 		SELECT rs.card_id::text, rs.status, rs.ease::float8, rs.interval_days, rs.due_at,
@@ -695,7 +726,7 @@ func loadReviewStateForUpdate(ctx context.Context, tx pgx.Tx, cardID string) (mo
 		JOIN cards c ON c.id = rs.card_id
 		WHERE rs.card_id = $1 AND c.user_id = $2 AND c.deleted_at IS NULL
 		FOR UPDATE OF rs
-	`, cardID, db.DemoUserID).Scan(
+	`, cardID, userID).Scan(
 		&state.CardID,
 		&state.Status,
 		&state.Ease,
@@ -709,7 +740,7 @@ func loadReviewStateForUpdate(ctx context.Context, tx pgx.Tx, cardID string) (mo
 	return state, err
 }
 
-func upsertCard(ctx context.Context, pool *pgxpool.Pool, cardID string, req cardRequest) (model.Card, error) {
+func upsertCard(ctx context.Context, pool *pgxpool.Pool, userID string, cardID string, req cardRequest) (model.Card, error) {
 	if err := required(req.SubjectID, "subject_id"); err != nil {
 		return model.Card{}, err
 	}
@@ -745,6 +776,37 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, cardID string, req card
 	}
 	defer tx.Rollback(ctx)
 
+	var subjectExists bool
+	if err = tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM subjects
+			WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+		)
+	`, req.SubjectID, userID).Scan(&subjectExists); err != nil {
+		return model.Card{}, err
+	}
+	if !subjectExists {
+		return model.Card{}, fmt.Errorf("subject not found")
+	}
+
+	for _, tagID := range req.TagIDs {
+		var tagExists bool
+		if err = tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM tags
+				WHERE id = $1
+				  AND subject_id = $2
+				  AND user_id = $3
+				  AND deleted_at IS NULL
+			)
+		`, tagID, req.SubjectID, userID).Scan(&tagExists); err != nil {
+			return model.Card{}, err
+		}
+		if !tagExists {
+			return model.Card{}, fmt.Errorf("set not found")
+		}
+	}
+
 	if cardID == "" {
 		cardID = uuid.NewString()
 		_, err = tx.Exec(ctx, `
@@ -752,7 +814,7 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, cardID string, req card
 				id, user_id, subject_id, card_type, direction, front_text, answer_text,
 				grammar_phrases, answer_tokens
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb)
-		`, cardID, db.DemoUserID, req.SubjectID, req.CardType, req.Direction, strings.TrimSpace(req.FrontText), strings.TrimSpace(req.AnswerText), string(grammarJSON), string(tokensJSON))
+		`, cardID, userID, req.SubjectID, req.CardType, req.Direction, strings.TrimSpace(req.FrontText), strings.TrimSpace(req.AnswerText), string(grammarJSON), string(tokensJSON))
 		if err != nil {
 			return model.Card{}, err
 		}
@@ -775,7 +837,7 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, cardID string, req card
 			    answer_tokens = $9::jsonb,
 			    updated_at = now()
 			WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-		`, cardID, db.DemoUserID, req.SubjectID, req.CardType, req.Direction, strings.TrimSpace(req.FrontText), strings.TrimSpace(req.AnswerText), string(grammarJSON), string(tokensJSON))
+		`, cardID, userID, req.SubjectID, req.CardType, req.Direction, strings.TrimSpace(req.FrontText), strings.TrimSpace(req.AnswerText), string(grammarJSON), string(tokensJSON))
 		if err != nil {
 			return model.Card{}, err
 		}
@@ -802,7 +864,7 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, cardID string, req card
 	if err := tx.Commit(ctx); err != nil {
 		return model.Card{}, err
 	}
-	cards, err := loadCards(ctx, pool, cardFilters{CardID: cardID, Limit: 1})
+	cards, err := loadCards(ctx, pool, cardFilters{UserID: userID, CardID: cardID, Limit: 1})
 	if err != nil {
 		return model.Card{}, err
 	}
@@ -813,6 +875,7 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, cardID string, req card
 }
 
 type cardFilters struct {
+	UserID    string
 	CardID    string
 	SubjectID string
 	TagIDs    []string
@@ -822,7 +885,7 @@ type cardFilters struct {
 }
 
 func loadCards(ctx context.Context, pool *pgxpool.Pool, filters cardFilters) ([]model.Card, error) {
-	args := []interface{}{db.DemoUserID}
+	args := []interface{}{filters.UserID}
 	conditions := []string{"c.user_id = $1", "c.deleted_at IS NULL"}
 	argIndex := 2
 
@@ -910,7 +973,7 @@ func loadCards(ctx context.Context, pool *pgxpool.Pool, filters cardFilters) ([]
 		if err := json.Unmarshal(tokenBytes, &card.AnswerTokens); err != nil {
 			return nil, err
 		}
-		tags, err := loadCardTags(ctx, pool, card.ID)
+		tags, err := loadCardTags(ctx, pool, filters.UserID, card.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -920,14 +983,14 @@ func loadCards(ctx context.Context, pool *pgxpool.Pool, filters cardFilters) ([]
 	return cards, rows.Err()
 }
 
-func loadCardTags(ctx context.Context, pool *pgxpool.Pool, cardID string) ([]model.Tag, error) {
+func loadCardTags(ctx context.Context, pool *pgxpool.Pool, userID string, cardID string) ([]model.Tag, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT t.id::text, t.subject_id::text, t.name, 0, 0
 		FROM tags t
 		JOIN card_tags ct ON ct.tag_id = t.id
-		WHERE ct.card_id = $1 AND t.deleted_at IS NULL
+		WHERE ct.card_id = $1 AND t.user_id = $2 AND t.deleted_at IS NULL
 		ORDER BY t.name
-	`, cardID)
+	`, cardID, userID)
 	if err != nil {
 		return nil, err
 	}

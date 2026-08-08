@@ -1,8 +1,10 @@
 import Foundation
+import Security
 
 enum APIError: LocalizedError {
     case badURL
     case badStatus(Int, String)
+    case unauthorized
 
     var errorDescription: String? {
         switch self {
@@ -10,6 +12,8 @@ enum APIError: LocalizedError {
             return "Invalid API URL"
         case .badStatus(let status, let message):
             return "API error \(status): \(message)"
+        case .unauthorized:
+            return "Please sign in again."
         }
     }
 }
@@ -30,6 +34,45 @@ final class APIClient {
 
     func listSubjects() async throws -> [AppSubject] {
         try await request(path: "/subjects")
+    }
+
+    func requestAuthCode(email: String) async throws {
+        let _: ActionStatusResponse = try await request(path: "/auth/request-code", method: "POST", body: EmailPayload(email: email), requiresAuth: false)
+    }
+
+    func verifyAuthCode(email: String, code: String) async throws -> AuthResponse {
+        try await request(path: "/auth/verify-code", method: "POST", body: VerifyCodePayload(email: email, code: code), requiresAuth: false)
+    }
+
+    func signInWithApple(identityToken: String, authorizationCode: String, nonce: String, fullName: String?, email: String?) async throws -> AuthResponse {
+        try await request(
+            path: "/auth/apple",
+            method: "POST",
+            body: AppleSignInPayload(
+                identityToken: identityToken,
+                authorizationCode: authorizationCode,
+                nonce: nonce,
+                fullName: fullName,
+                email: email
+            ),
+            requiresAuth: false
+        )
+    }
+
+    func getCurrentUser() async throws -> AuthResponse {
+        try await request(path: "/auth/me")
+    }
+
+    func logout() async throws {
+        let _: ActionStatusResponse = try await request(path: "/auth/logout", method: "POST")
+    }
+
+    func requestDeleteAccountCode() async throws {
+        let _: ActionStatusResponse = try await request(path: "/account/delete-code", method: "POST")
+    }
+
+    func deleteAccount(email: String, code: String) async throws {
+        let _: ActionStatusResponse = try await request(path: "/account", method: "DELETE", body: VerifyCodePayload(email: email, code: code))
     }
 
     func createSubject(name: String) async throws -> AppSubject {
@@ -127,23 +170,30 @@ final class APIClient {
         let _: ActionStatusResponse = try await request(path: "/cards/\(card.id)/master", method: "POST")
     }
 
-    private func request<T: Decodable>(path: String, method: String = "GET") async throws -> T {
-        try await request(url: baseURL.appendingPathComponent(path), method: method, bodyData: nil)
+    private func request<T: Decodable>(path: String, method: String = "GET", requiresAuth: Bool = true) async throws -> T {
+        try await request(url: baseURL.appendingPathComponent(path), method: method, bodyData: nil, requiresAuth: requiresAuth)
     }
 
-    private func request<T: Decodable, Body: Encodable>(path: String, method: String, body: Body) async throws -> T {
-        try await request(url: baseURL.appendingPathComponent(path), method: method, bodyData: encoder.encode(body))
+    private func request<T: Decodable, Body: Encodable>(path: String, method: String, body: Body, requiresAuth: Bool = true) async throws -> T {
+        try await request(url: baseURL.appendingPathComponent(path), method: method, bodyData: encoder.encode(body), requiresAuth: requiresAuth)
     }
 
-    private func request<T: Decodable>(url: URL, method: String = "GET", bodyData: Data? = nil) async throws -> T {
+    private func request<T: Decodable>(url: URL, method: String = "GET", bodyData: Data? = nil, requiresAuth: Bool = true) async throws -> T {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if requiresAuth, let token = SessionKeychainReader.readToken(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = bodyData
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.badStatus(-1, "Invalid response")
+        }
+        if httpResponse.statusCode == 401 {
+            NotificationCenter.default.post(name: AuthSessionStore.sessionDidExpire, object: nil)
+            throw APIError.unauthorized
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
             let message = String(data: data, encoding: .utf8) ?? "Unknown error"
@@ -161,6 +211,31 @@ private struct NamePayload: Encodable {
     let name: String
 }
 
+private struct EmailPayload: Encodable {
+    let email: String
+}
+
+private struct VerifyCodePayload: Encodable {
+    let email: String
+    let code: String
+}
+
+private struct AppleSignInPayload: Encodable {
+    let identityToken: String
+    let authorizationCode: String
+    let nonce: String
+    let fullName: String?
+    let email: String?
+
+    enum CodingKeys: String, CodingKey {
+        case identityToken = "identity_token"
+        case authorizationCode = "authorization_code"
+        case nonce
+        case fullName = "full_name"
+        case email
+    }
+}
+
 private struct ReviewResultPayload: Encodable {
     let cardID: String
     let mode: String
@@ -174,5 +249,23 @@ private struct ReviewResultPayload: Encodable {
         case rating
         case revealedTokensCount = "revealed_tokens_count"
         case totalTokensCount = "total_tokens_count"
+    }
+}
+
+private enum SessionKeychainReader {
+    static func readToken() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.siyuancheng.Cardly",
+            kSecAttrAccount as String: "session-token",
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 }
