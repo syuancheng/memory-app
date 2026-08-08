@@ -61,7 +61,7 @@ struct HomeView: View {
                     .font(.system(size: 34, weight: .bold))
                     .foregroundStyle(AppSurface.text)
 
-                Text("Ready for a short English review?")
+                Text("AI flashcards for active recall")
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(AppSurface.muted)
             }

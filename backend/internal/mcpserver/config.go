@@ -7,22 +7,35 @@ import (
 )
 
 type Config struct {
-	DatabaseURL    string
-	Addr           string
-	AuthToken      string
-	AllowedHosts   []string
-	AllowedOrigins []string
-	JSONResponse   bool
+	DatabaseURL                  string
+	Addr                         string
+	AuthToken                    string
+	AllowedHosts                 []string
+	AllowedOrigins               []string
+	JSONResponse                 bool
+	OAuthEnabled                 bool
+	OAuthPublicURL               string
+	OAuthClientID                string
+	OAuthOwnerPassword           string
+	OAuthTokenSecret             string
+	OAuthAllowedRedirectPrefixes []string
 }
 
 func FromEnv() Config {
+	authToken := strings.TrimSpace(os.Getenv("MEMORY_MCP_TOKEN"))
 	return Config{
-		DatabaseURL:    env("DATABASE_URL", "postgres://memory:memory@localhost:5432/memory_app?sslmode=disable"),
-		Addr:           ":" + env("PORT", "3001"),
-		AuthToken:      strings.TrimSpace(os.Getenv("MEMORY_MCP_TOKEN")),
-		AllowedHosts:   splitCSV(env("MEMORY_MCP_ALLOWED_HOSTS", "127.0.0.1,localhost")),
-		AllowedOrigins: splitCSV(os.Getenv("MEMORY_MCP_ALLOWED_ORIGINS")),
-		JSONResponse:   envBool("MEMORY_MCP_JSON_RESPONSE", false),
+		DatabaseURL:                  env("DATABASE_URL", "postgres://memory:memory@localhost:5432/memory_app?sslmode=disable"),
+		Addr:                         ":" + env("PORT", "3001"),
+		AuthToken:                    authToken,
+		AllowedHosts:                 splitCSV(env("MEMORY_MCP_ALLOWED_HOSTS", "127.0.0.1,localhost")),
+		AllowedOrigins:               splitCSV(os.Getenv("MEMORY_MCP_ALLOWED_ORIGINS")),
+		JSONResponse:                 envBool("MEMORY_MCP_JSON_RESPONSE", false),
+		OAuthEnabled:                 envBool("MEMORY_MCP_OAUTH_ENABLED", false),
+		OAuthPublicURL:               strings.TrimRight(env("MEMORY_MCP_PUBLIC_URL", "http://127.0.0.1:3001"), "/"),
+		OAuthClientID:                env("MEMORY_MCP_OAUTH_CLIENT_ID", "recall-deck-chatgpt"),
+		OAuthOwnerPassword:           strings.TrimSpace(os.Getenv("MEMORY_MCP_OWNER_PASSWORD")),
+		OAuthTokenSecret:             env("MEMORY_MCP_OAUTH_TOKEN_SECRET", authToken),
+		OAuthAllowedRedirectPrefixes: splitCSV(env("MEMORY_MCP_OAUTH_ALLOWED_REDIRECT_PREFIXES", "https://chatgpt.com/connector/oauth/")),
 	}
 }
 

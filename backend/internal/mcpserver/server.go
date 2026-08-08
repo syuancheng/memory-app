@@ -25,6 +25,7 @@ type ServerConfig struct {
 	AllowedHosts   []string
 	AllowedOrigins []string
 	JSONResponse   bool
+	OAuthServer    *OAuthServer
 }
 
 func NewHTTPHandler(pool *pgxpool.Pool, cfg ServerConfig) http.Handler {
@@ -32,7 +33,7 @@ func NewHTTPHandler(pool *pgxpool.Pool, cfg ServerConfig) http.Handler {
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return server
 	}, &mcp.StreamableHTTPOptions{JSONResponse: cfg.JSONResponse})
-	return withHostValidation(cfg.AllowedHosts, withCORS(cfg.AllowedOrigins, withAuth(cfg.AuthToken, handler)))
+	return withHostValidation(cfg.AllowedHosts, withCORS(cfg.AllowedOrigins, withAuth(cfg.AuthToken, cfg.OAuthServer, handler)))
 }
 
 func NewServer(pool *pgxpool.Pool) *mcp.Server {
@@ -481,15 +482,23 @@ func (t *Tools) loadCardTags(ctx context.Context, cardID string) ([]model.Tag, e
 	return tags, rows.Err()
 }
 
-func withAuth(token string, next http.Handler) http.Handler {
-	if token == "" {
+func withAuth(token string, oauthServer *OAuthServer, next http.Handler) http.Handler {
+	if token == "" && oauthServer == nil {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 		headerToken := strings.TrimSpace(r.Header.Get("X-Memory-Mcp-Token"))
-		if bearer == token || headerToken == token {
+		if token != "" && (bearer == token || headerToken == token) {
 			next.ServeHTTP(w, r)
+			return
+		}
+		if oauthServer != nil && oauthServer.ValidAccessToken(bearer) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if oauthServer != nil {
+			oauthServer.WriteUnauthorized(w)
 			return
 		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)

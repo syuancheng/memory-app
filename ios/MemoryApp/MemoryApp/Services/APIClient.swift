@@ -22,7 +22,7 @@ final class APIClient {
     private let encoder: JSONEncoder
 
     init() {
-        let rawBaseURL = ProcessInfo.processInfo.environment["MEMORY_API_BASE_URL"] ?? "http://127.0.0.1:8081/api"
+        let rawBaseURL = ProcessInfo.processInfo.environment["MEMORY_API_BASE_URL"] ?? "https://api.siyuancheng.com/api"
         self.baseURL = URL(string: rawBaseURL)!
         self.decoder = JSONDecoder()
         self.encoder = JSONEncoder()

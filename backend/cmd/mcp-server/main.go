@@ -31,16 +31,38 @@ func main() {
 		log.Fatalf("ensure demo user: %v", err)
 	}
 
+	var oauthServer *mcpserver.OAuthServer
+	if cfg.OAuthEnabled {
+		oauthServer, err = mcpserver.NewOAuthServer(mcpserver.OAuthConfig{
+			PublicURL:               cfg.OAuthPublicURL,
+			ClientID:                cfg.OAuthClientID,
+			OwnerPassword:           cfg.OAuthOwnerPassword,
+			TokenSecret:             cfg.OAuthTokenSecret,
+			AllowedRedirectPrefixes: cfg.OAuthAllowedRedirectPrefixes,
+		})
+		if err != nil {
+			log.Fatalf("configure oauth: %v", err)
+		}
+	}
+
 	handler := mcpserver.NewHTTPHandler(pool, mcpserver.ServerConfig{
 		AuthToken:      cfg.AuthToken,
 		AllowedHosts:   cfg.AllowedHosts,
 		AllowedOrigins: cfg.AllowedOrigins,
 		JSONResponse:   cfg.JSONResponse,
+		OAuthServer:    oauthServer,
 	})
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", handler)
 	mux.Handle("/mcp/", handler)
+	if oauthServer != nil {
+		mux.HandleFunc("/.well-known/oauth-protected-resource", oauthServer.HandleProtectedResourceMetadata)
+		mux.HandleFunc("/.well-known/oauth-authorization-server", oauthServer.HandleAuthorizationServerMetadata)
+		mux.HandleFunc("/.well-known/openid-configuration", oauthServer.HandleAuthorizationServerMetadata)
+		mux.HandleFunc("/oauth/authorize", oauthServer.HandleAuthorize)
+		mux.HandleFunc("/oauth/token", oauthServer.HandleToken)
+	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -55,6 +77,9 @@ func main() {
 		log.Printf("memory MCP server listening on %s", cfg.Addr)
 		if cfg.AuthToken == "" {
 			log.Print("MEMORY_MCP_TOKEN is not set; MCP endpoint is unauthenticated")
+		}
+		if oauthServer != nil {
+			log.Printf("oauth enabled for MCP client %q", oauthServer.ClientID())
 		}
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)

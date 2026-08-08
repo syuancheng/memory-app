@@ -3,8 +3,8 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Memory App",
-  description: "Card management for the Minimal English Memory App"
+  title: "RecallDeck",
+  description: "AI flashcards for active recall"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -18,8 +18,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 M
               </Link>
               <div>
-                <strong>Memory</strong>
-                <span>Study sets</span>
+                <strong>RecallDeck</strong>
+                <span>AI flashcards for active recall</span>
               </div>
             </div>
             <nav className="topnav" aria-label="Primary navigation">

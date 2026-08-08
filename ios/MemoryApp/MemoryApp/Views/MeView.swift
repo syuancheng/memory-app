@@ -515,7 +515,7 @@ private struct AboutPage: View {
     var body: some View {
         MePageScaffold(title: "About") {
             MeGroupedSection {
-                MeValueRow(title: "App Name", value: "MemoryApp")
+                MeValueRow(title: "App Name", value: "RecallDeck")
                 MeSeparator()
                 MeValueRow(title: "App Version", value: appVersion)
                 MeSeparator()

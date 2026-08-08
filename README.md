@@ -1,4 +1,6 @@
-# Minimal English Memory App
+# RecallDeck
+
+AI flashcards for active recall.
 
 Monorepo for the MVP:
 
@@ -28,11 +30,27 @@ cd backend
 PORT=3001 MEMORY_MCP_TOKEN=replace-with-a-secret go run ./cmd/mcp-server
 ```
 
+For ChatGPT custom MCP apps, enable the built-in single-user OAuth flow:
+
+```bash
+cd backend
+PORT=3001 \
+MEMORY_MCP_OAUTH_ENABLED=true \
+MEMORY_MCP_PUBLIC_URL=https://mcp.example.com \
+MEMORY_MCP_OAUTH_CLIENT_ID=recall-deck-chatgpt \
+MEMORY_MCP_OWNER_PASSWORD=replace-with-an-owner-password \
+MEMORY_MCP_OAUTH_TOKEN_SECRET=replace-with-a-token-signing-secret \
+go run ./cmd/mcp-server
+```
+
 The MCP endpoint is:
 
 ```text
-http://127.0.0.1:3001/mcp
+https://mcp.example.com/mcp
 ```
+
+In ChatGPT, create a custom app with OAuth authentication, client ID
+`recall-deck-chatgpt`, no client secret, and token endpoint auth method `none`.
 
 Available MCP tools:
 
