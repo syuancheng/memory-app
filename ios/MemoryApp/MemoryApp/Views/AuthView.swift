@@ -1,12 +1,13 @@
-import AuthenticationServices
-import CryptoKit
 import SwiftUI
 
 struct AuthView: View {
     @EnvironmentObject private var session: AuthSessionStore
 
-    @State private var currentNonce: String?
-    @State private var isSigningIn = false
+    @State private var email = ""
+    @State private var code = ""
+    @State private var codeSent = false
+    @State private var isSubmitting = false
+    @State private var message: String?
     @State private var errorMessage: String?
 
     var body: some View {
@@ -14,7 +15,7 @@ struct AuthView: View {
             AppSurface.background
                 .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 30) {
+            VStack(alignment: .leading, spacing: 28) {
                 Spacer(minLength: 24)
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -28,37 +29,71 @@ struct AuthView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 18) {
-                    SignInWithAppleButton(.continue) { request in
-                        let nonce = randomNonceString()
-                        currentNonce = nonce
-                        request.requestedScopes = [.fullName, .email]
-                        request.nonce = sha256(nonce)
-                    } onCompletion: { result in
-                        handleAppleCompletion(result)
-                    }
-                    .signInWithAppleButtonStyle(.black)
-                    .frame(height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .disabled(isSigningIn)
-                    .opacity(isSigningIn ? 0.6 : 1)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Email")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(AppSurface.muted)
 
-                    if isSigningIn {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .tint(AppSurface.accent)
-                            Text("Signing in...")
-                                .font(.system(size: 13, weight: .medium))
+                        TextField("you@example.com", text: $email)
+                            .keyboardType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .textContentType(.emailAddress)
+                            .authFieldStyle()
+                    }
+
+                    if codeSent {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Verification code")
+                                .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(AppSurface.muted)
+
+                            TextField("6-digit code", text: $code)
+                                .keyboardType(.numberPad)
+                                .textContentType(.oneTimeCode)
+                                .authFieldStyle()
                         }
-                        .frame(maxWidth: .infinity)
+                    }
+
+                    Button {
+                        Task { await submit() }
+                    } label: {
+                        HStack {
+                            if isSubmitting {
+                                ProgressView()
+                                    .tint(.white)
+                            }
+                            Text(codeSent ? "Sign in" : "Send code")
+                        }
+                    }
+                    .buttonStyle(AuthPrimaryButtonStyle())
+                    .disabled(isDisabled)
+                    .opacity(isDisabled ? 0.55 : 1)
+
+                    if codeSent {
+                        Button {
+                            Task { await sendCode() }
+                        } label: {
+                            Text("Send a new code")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(AppSurface.accent)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .disabled(isSubmitting)
+                    }
+
+                    if let message {
+                        Text(message)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(AppSurface.muted)
+                            .frame(maxWidth: .infinity, alignment: .center)
                     }
 
                     if let errorMessage {
                         Text(errorMessage)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(AppSurface.coral)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: .infinity, alignment: .center)
                     }
                 }
                 .padding(22)
@@ -76,85 +111,70 @@ struct AuthView: View {
         }
     }
 
-    private func handleAppleCompletion(_ result: Result<ASAuthorization, Error>) {
-        switch result {
-        case .success(let authorization):
-            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
-                errorMessage = "Could not read Apple sign-in response."
-                return
-            }
-            guard let nonce = currentNonce else {
-                errorMessage = "Missing sign-in nonce."
-                return
-            }
-            guard
-                let identityTokenData = credential.identityToken,
-                let identityToken = String(data: identityTokenData, encoding: .utf8)
-            else {
-                errorMessage = "Missing Apple identity token."
-                return
-            }
-            let authorizationCode = credential.authorizationCode.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-            let fullName = credential.fullName.map { components in
-                PersonNameComponentsFormatter.localizedString(from: components, style: .default)
-            }
+    private var isDisabled: Bool {
+        isSubmitting ||
+            email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            (codeSent && code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
 
-            isSigningIn = true
-            errorMessage = nil
-            Task {
-                do {
-                    try await session.signInWithApple(
-                        identityToken: identityToken,
-                        authorizationCode: authorizationCode,
-                        nonce: nonce,
-                        fullName: fullName,
-                        email: credential.email
-                    )
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
-                isSigningIn = false
-                currentNonce = nil
-            }
-        case .failure(let error):
-            currentNonce = nil
-            if let authError = error as? ASAuthorizationError, authError.code == .canceled {
-                return
-            }
+    private func submit() async {
+        if codeSent {
+            await verifyCode()
+        } else {
+            await sendCode()
+        }
+    }
+
+    private func sendCode() async {
+        isSubmitting = true
+        errorMessage = nil
+        message = nil
+        do {
+            try await session.requestLoginCode(email: email)
+            codeSent = true
+            message = "Code sent. Check your email."
+        } catch {
             errorMessage = error.localizedDescription
         }
+        isSubmitting = false
+    }
+
+    private func verifyCode() async {
+        isSubmitting = true
+        errorMessage = nil
+        message = nil
+        do {
+            try await session.verifyLoginCode(email: email, code: code)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isSubmitting = false
     }
 }
 
-private func sha256(_ input: String) -> String {
-    let inputData = Data(input.utf8)
-    let hashedData = SHA256.hash(data: inputData)
-    return hashedData.map { String(format: "%02x", $0) }.joined()
+private extension View {
+    func authFieldStyle() -> some View {
+        self
+            .font(.system(size: 16, weight: .regular))
+            .padding(.horizontal, 14)
+            .frame(minHeight: 54)
+            .background(AppSurface.cardSubtle)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(AppSurface.line, lineWidth: 1)
+            )
+    }
 }
 
-private func randomNonceString(length: Int = 32) -> String {
-    precondition(length > 0)
-    let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
-    var result = ""
-    var remainingLength = length
-
-    while remainingLength > 0 {
-        var randoms = [UInt8](repeating: 0, count: 16)
-        let status = SecRandomCopyBytes(kSecRandomDefault, randoms.count, &randoms)
-        if status != errSecSuccess {
-            fatalError("Unable to generate nonce. SecRandomCopyBytes failed with OSStatus \(status)")
-        }
-
-        for random in randoms {
-            if remainingLength == 0 {
-                break
-            }
-            if Int(random) < charset.count {
-                result.append(charset[Int(random)])
-                remainingLength -= 1
-            }
-        }
+private struct AuthPrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 17, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(AppSurface.dark)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }
-
-    return result
 }
