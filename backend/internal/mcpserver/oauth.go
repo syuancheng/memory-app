@@ -154,7 +154,7 @@ func (s *OAuthServer) showAuthorize(w http.ResponseWriter, r *http.Request, mess
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Authorize RecallDeck</title>
+  <title>Authorize Cardly</title>
   <style>
     body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f8f7f4;color:#111827;margin:0;min-height:100vh;display:grid;place-items:center}
     main{width:min(420px,calc(100vw - 32px));background:#fff;border:1px solid #ece8df;border-radius:24px;padding:28px;box-shadow:0 18px 50px rgba(17,24,39,.08)}
@@ -166,8 +166,8 @@ func (s *OAuthServer) showAuthorize(w http.ResponseWriter, r *http.Request, mess
   </style>
 </head>
 <body><main>
-  <h1>Authorize RecallDeck</h1>
-  <p>ChatGPT is requesting access to your RecallDeck flashcards.</p>
+  <h1>Authorize Cardly</h1>
+  <p>ChatGPT is requesting access to your Cardly flashcards.</p>
   %s
   <form method="post" action="%s">
     %s

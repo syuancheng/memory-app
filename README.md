@@ -1,4 +1,4 @@
-# RecallDeck
+# Cardly
 
 AI flashcards for active recall.
 

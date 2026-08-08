@@ -3,7 +3,7 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "RecallDeck",
+  title: "Cardly",
   description: "AI flashcards for active recall"
 };
 
@@ -18,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 M
               </Link>
               <div>
-                <strong>RecallDeck</strong>
+                <strong>Cardly</strong>
                 <span>AI flashcards for active recall</span>
               </div>
             </div>
