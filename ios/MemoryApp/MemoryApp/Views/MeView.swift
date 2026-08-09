@@ -6,36 +6,29 @@ struct MeView: View {
     @State private var summary: MeSummary?
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var showingAchievements = false
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                AppSurface.background
-                    .ignoresSafeArea()
-
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 24) {
-                        pageTitle
-                        userHeader
-                        achievementsSection
-                        profileSection
-                        settingsSection
-                        loadState
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 18)
-                    .padding(.bottom, 34)
-                }
+            AppScreen {
+                pageTitle
+                userHeader
+                achievementsSection
+                profileSection
+                settingsSection
+                loadState
             }
+            // Tab 根屏 = 样式 B（大标题头），无导航栏内容。
+            // onClose 存在时说明本视图被 present 出来，此时降级为样式 A（原生返回）。
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(onClose == nil ? .hidden : .visible, for: .navigationBar)
             .toolbar {
                 if let onClose {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            onClose()
-                        } label: {
-                            Image(systemName: "chevron.left")
+                        Button(action: onClose) {
+                            Image(systemName: AppIcon.back)
                         }
+                        .accessibilityLabel("Back")
                     }
                 }
             }
@@ -47,6 +40,8 @@ struct MeView: View {
                     AccountPage(summary: summary)
                 case .connectedAccounts:
                     ConnectedAccountsPage()
+                case .mcpAccess:
+                    MCPAccessPage()
                 case .learningPreferences:
                     LearningPreferencesPage()
                 case .notifications:
@@ -70,112 +65,113 @@ struct MeView: View {
     }
 
     private var pageTitle: some View {
-        Text("Me")
-            .font(.system(size: 38, weight: .bold))
-            .foregroundStyle(AppSurface.text)
-            .padding(.top, 4)
+        AppLargeHeader(title: "Me")
     }
 
     private var userHeader: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: AppSpace.lg) {
             Text(initial(profileName))
-                .font(.system(size: 30, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 72, height: 72)
-                .background(AppSurface.dark)
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(.white, lineWidth: 3)
-                )
-                .shadow(color: AppSurface.shadow.opacity(0.08), radius: 18, x: 0, y: 10)
+                .appText(AppType.title2, color: AppColor.textOnInverse)
+                .frame(width: AppLayout.avatarLG, height: AppLayout.avatarLG)
+                .background(AppColor.surfaceInverse, in: Circle())
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: AppSpace.xs) {
                 Text(profileName)
-                    .font(.system(size: 25, weight: .bold))
-                    .foregroundStyle(AppSurface.text)
+                    .appText(AppType.title2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
 
                 Text(profileEmail)
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(AppSurface.muted)
+                    .appText(AppType.body, color: AppColor.textTertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
 
             Spacer(minLength: 0)
         }
-        .padding(.top, 8)
+        .accessibilityElement(children: .combine)
     }
 
     private var achievementsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Achievements")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(AppSurface.text)
-
-                Spacer()
-
-                NavigationLink(value: MeDestination.achievements) {
-                    Text("View all")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(AppSurface.accent)
-                }
-                .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 0) {
+            // "View all" 回到 SectionHeader 尾部。改造中一度挪到卡片下方，
+            // 模拟器实测：它孤立地挂在左下，与上方卡片和下方分组都没有归属关系。
+            AppSectionHeader(title: "Achievements", actionTitle: "View all") {
+                showingAchievements = true
             }
 
             ActivityCalendarPreview(records: activityRecords)
         }
+        .navigationDestination(isPresented: $showingAchievements) {
+            MonthlyAchievementsPage(summary: summary)
+        }
     }
 
     private var profileSection: some View {
-        MeGroupedSection(title: "Profile") {
-            NavigationLink(value: MeDestination.account) {
-                MeSettingsRow(title: "Account", icon: "person.fill")
-            }
-            .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 0) {
+            AppSectionHeader(title: "Profile")
 
-            MeSeparator()
+            AppGroupedList {
+                NavigationLink(value: MeDestination.account) {
+                    AppListRow(title: "Account", icon: "person")
+                }
+                .buttonStyle(.plain)
 
-            NavigationLink(value: MeDestination.connectedAccounts) {
-                MeSettingsRow(title: "Connected Accounts", icon: "link")
+                AppRowSeparator()
+
+                NavigationLink(value: MeDestination.connectedAccounts) {
+                    AppListRow(title: "Connected Accounts", icon: "link")
+                }
+                .buttonStyle(.plain)
+
+                AppRowSeparator()
+
+                NavigationLink(value: MeDestination.mcpAccess) {
+                    AppListRow(title: "MCP Access", icon: "terminal")
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
     }
 
     private var settingsSection: some View {
-        MeGroupedSection(title: "Settings") {
-            NavigationLink(value: MeDestination.learningPreferences) {
-                MeSettingsRow(title: "Learning Preferences", icon: "slider.horizontal.3")
+        VStack(alignment: .leading, spacing: 0) {
+            AppSectionHeader(title: "Settings")
+
+            AppGroupedList {
+                NavigationLink(value: MeDestination.learningPreferences) {
+                    AppListRow(title: "Learning Preferences", icon: "slider.horizontal.3")
+                }
+                .buttonStyle(.plain)
+
+                AppRowSeparator()
+
+                NavigationLink(value: MeDestination.notifications) {
+                    AppListRow(title: "Notifications", icon: "bell")
+                }
+                .buttonStyle(.plain)
+
+                AppRowSeparator()
+
+                NavigationLink(value: MeDestination.appearance) {
+                    AppListRow(title: "Appearance", icon: "textformat.size")
+                }
+                .buttonStyle(.plain)
+
+                AppRowSeparator()
+
+                NavigationLink(value: MeDestination.privacyData) {
+                    AppListRow(title: "Privacy & Data", icon: "lock.shield")
+                }
+                .buttonStyle(.plain)
+
+                AppRowSeparator()
+
+                NavigationLink(value: MeDestination.about) {
+                    AppListRow(title: "About", icon: "info.circle")
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-
-            MeSeparator()
-
-            NavigationLink(value: MeDestination.notifications) {
-                MeSettingsRow(title: "Notifications", icon: "bell.fill")
-            }
-            .buttonStyle(.plain)
-
-            MeSeparator()
-
-            NavigationLink(value: MeDestination.appearance) {
-                MeSettingsRow(title: "Appearance", icon: "textformat.size")
-            }
-            .buttonStyle(.plain)
-
-            MeSeparator()
-
-            NavigationLink(value: MeDestination.privacyData) {
-                MeSettingsRow(title: "Privacy & Data", icon: "lock.shield.fill")
-            }
-            .buttonStyle(.plain)
-
-            MeSeparator()
-
-            NavigationLink(value: MeDestination.about) {
-                MeSettingsRow(title: "About", icon: "info.circle.fill")
-            }
-            .buttonStyle(.plain)
         }
     }
 
@@ -185,17 +181,15 @@ struct MeView: View {
             HStack {
                 Spacer()
                 ProgressView()
+                    .tint(AppColor.primary)
                 Spacer()
             }
-            .padding(.top, 4)
         }
 
         if let errorMessage {
             Text(errorMessage)
-                .font(.system(size: 13))
-                .foregroundStyle(AppSurface.coral)
+                .appText(AppType.label, color: AppColor.dangerText)
                 .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.top, 4)
         }
     }
 
@@ -250,16 +244,11 @@ private struct MonthlyAchievementsPage: View {
 
     var body: some View {
         MePageScaffold(title: "Achievements") {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: AppSpace.lg) {
                 MeGroupedSection {
-                    VStack(alignment: .leading, spacing: 16) {
-                        VStack(spacing: 10) {
-                            MeValueRow(title: "Current streak", value: "\(currentStreak) days")
-                            MeSeparator()
-                            MeValueRow(title: "Total learning days", value: "\(totalLearningDays) days")
-                        }
-                    }
-                    .padding(16)
+                    MeValueRow(title: "Current streak", value: "\(currentStreak) days")
+                    MeSeparator()
+                    MeValueRow(title: "Total learning days", value: "\(totalLearningDays) days")
                 }
 
                 ActivityCalendarCard(records: records, selectedRecord: $selectedRecord)
@@ -300,7 +289,7 @@ private struct AccountPage: View {
 
     var body: some View {
         MePageScaffold(title: "Account") {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: AppSpace.xxl) {
                 MeGroupedSection(title: "Avatar") {
                     NavigationLink(value: MeDestination.accountEdit(.avatar)) {
                         AvatarSettingsRow(initial: name.initialLetter)
@@ -356,16 +345,14 @@ private struct AccountPage: View {
 
                 if let statusMessage {
                     Text(statusMessage)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(AppSurface.muted)
-                        .padding(.horizontal, 2)
+                        .appText(AppType.label, color: AppColor.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if let errorMessage {
                     Text(errorMessage)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(AppSurface.coral)
-                        .padding(.horizontal, 2)
+                        .appText(AppType.label, color: AppColor.dangerText)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -440,32 +427,22 @@ private struct DeleteAccountCodeSheet: View {
 
     var body: some View {
         ZStack {
-            AppSurface.background
+            AppColor.surfaceBase
                 .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: AppSpace.lg) {
                 Text("Delete Account")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(AppSurface.text)
+                    .appText(AppType.title2)
 
                 Text("Enter the verification code sent to \(email).")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(AppSurface.muted)
+                    .appText(AppType.body, color: AppColor.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                TextField("6-digit code", text: $code)
+                AppTextField(label: "Verification code", text: $code, placeholder: "6-digit code")
                     .keyboardType(.numberPad)
                     .textContentType(.oneTimeCode)
-                    .font(.system(size: 16, weight: .regular))
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 52)
-                    .background(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(AppSurface.line, lineWidth: 1)
-                    )
 
-                HStack(spacing: 12) {
+                HStack(spacing: AppSpace.md) {
                     Button("Cancel") {
                         onCancel()
                     }
@@ -484,8 +461,173 @@ private struct DeleteAccountCodeSheet: View {
                     .disabled(isWorking || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            .padding(24)
+            .padding(AppLayout.screenMargin)
         }
+    }
+}
+
+/// MCP 个人访问令牌管理。
+///
+/// 存在的理由：MCP 的静态 MEMORY_MCP_TOKEN 一律映射到 demo 用户，
+/// 通过它创建的卡片进不了自己的账号。个人令牌把 token 绑定到当前登录用户。
+private struct MCPAccessPage: View {
+    @State private var tokens: [MCPToken] = []
+    @State private var freshToken: String?
+    @State private var isLoading = false
+    @State private var isCreating = false
+    @State private var errorMessage: String?
+    @State private var revoking: MCPToken?
+    @State private var copied = false
+
+    var body: some View {
+        MePageScaffold(title: "MCP Access") {
+            AppCard {
+                VStack(alignment: .leading, spacing: AppSpace.sm) {
+                    Text("Connect an MCP client")
+                        .appText(AppType.headline)
+                    Text("Generate a token, then paste it into ChatGPT or Claude as the Authorization bearer for this app's MCP endpoint. Cards created there land in your account.")
+                        .appText(AppType.body, color: AppColor.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            // 明文只在创建时出现一次，用反相卡强调「现在不复制就再也拿不到」
+            if let freshToken {
+                AppCard(variant: .inverse) {
+                    VStack(alignment: .leading, spacing: AppSpace.md) {
+                        Text("Copy it now")
+                            .appText(AppType.label, color: AppColor.primaryOnInverse)
+
+                        Text(freshToken)
+                            .appText(AppType.body, color: AppColor.textOnInverse)
+                            .monospaced()
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+
+                        Text("This is the only time the token is shown.")
+                            .appText(AppType.label, color: AppColor.textOnInverseSecondary)
+
+                        AppButton(
+                            title: copied ? "Copied" : "Copy token",
+                            variant: .secondary,
+                            size: .medium,
+                            fullWidth: true
+                        ) {
+                            UIPasteboard.general.string = freshToken
+                            copied = true
+                        }
+                    }
+                }
+            }
+
+            AppButton(
+                title: "Generate token",
+                variant: .primary,
+                size: .large,
+                fullWidth: true,
+                isEnabled: !isCreating,
+                isLoading: isCreating
+            ) {
+                Task { await create() }
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .appText(AppType.label, color: AppColor.dangerText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if isLoading {
+                HStack { Spacer(); ProgressView().tint(AppColor.primary); Spacer() }
+            } else if tokens.isEmpty {
+                AppEmptyState(
+                    title: "No tokens yet",
+                    message: "Generate one to connect an MCP client.",
+                    density: .compact
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    AppSectionHeader(title: "Active tokens")
+
+                    AppGroupedList {
+                        ForEach(Array(tokens.enumerated()), id: \.element.id) { index, token in
+                            if index > 0 { AppRowSeparator(inset: AppLayout.separatorInsetPlain) }
+                            AppListRow(
+                                title: token.name,
+                                subtitle: subtitle(for: token),
+                                accessory: .none,
+                                isEnabled: revoking?.id != token.id
+                            )
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) {
+                                    Task { await revoke(token) }
+                                } label: {
+                                    Label("Revoke", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
+
+                    Text("Swipe a token to revoke it.")
+                        .appText(AppType.label, color: AppColor.textTertiary)
+                        .padding(.top, AppSpace.sm)
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    private func subtitle(for token: MCPToken) -> String {
+        let created = shortDate(token.createdAt)
+        guard let used = token.lastUsedAt else {
+            return "Created \(created) · never used"
+        }
+        return "Created \(created) · last used \(shortDate(used))"
+    }
+
+    private func shortDate(_ raw: String) -> String {
+        guard let date = ISO8601DateFormatter().date(from: raw) else { return raw }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
+    }
+
+    private func load() async {
+        isLoading = true
+        errorMessage = nil
+        do {
+            tokens = try await APIClient.shared.listMCPTokens()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
+    }
+
+    private func create() async {
+        isCreating = true
+        errorMessage = nil
+        copied = false
+        do {
+            let created = try await APIClient.shared.createMCPToken(name: "MCP client")
+            freshToken = created.token
+            await load()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isCreating = false
+    }
+
+    private func revoke(_ token: MCPToken) async {
+        revoking = token
+        errorMessage = nil
+        do {
+            try await APIClient.shared.revokeMCPToken(tokenID: token.id)
+            await load()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        revoking = nil
     }
 }
 
@@ -494,7 +636,7 @@ private struct ConnectedAccountsPage: View {
 
     var body: some View {
         MePageScaffold(title: "Connected Accounts") {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: AppSpace.lg) {
                 MeGroupedSection {
                     Button {
                         statusMessage = "Google connection is coming later."
@@ -533,9 +675,8 @@ private struct ConnectedAccountsPage: View {
 
                 if let statusMessage {
                     Text(statusMessage)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(AppSurface.muted)
-                        .padding(.horizontal, 2)
+                        .appText(AppType.label, color: AppColor.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -577,12 +718,11 @@ private struct AppearancePage: View {
 
     var body: some View {
         MePageScaffold(title: "Appearance") {
-            VStack(alignment: .leading, spacing: 14) {
-                MeGroupedSection {
-                    VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: AppSpace.md) {
+                AppCard {
+                    VStack(alignment: .leading, spacing: AppSpace.md) {
                         Text("Font Size")
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundStyle(AppSurface.text)
+                            .appText(AppType.label, color: AppColor.textTertiary)
 
                         Picker("Font Size", selection: $fontSizeChoice) {
                             ForEach(FontSizeChoice.allCases) { choice in
@@ -591,13 +731,11 @@ private struct AppearancePage: View {
                         }
                         .pickerStyle(.segmented)
                     }
-                    .padding(.vertical, 10)
                 }
 
                 Text("Font size is saved here for now and will apply globally later.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppSurface.muted)
-                    .padding(.horizontal, 2)
+                    .appText(AppType.label, color: AppColor.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -608,17 +746,17 @@ private struct PrivacyDataPage: View {
 
     var body: some View {
         MePageScaffold(title: "Privacy & Data") {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: AppSpace.lg) {
                 MeGroupedSection {
                     NavigationLink(value: MeDestination.document(.privacy)) {
-                        MeSettingsRow(title: "Privacy Policy")
+                        AppListRow(title: "Privacy Policy")
                     }
                     .buttonStyle(.plain)
 
                     MeSeparator()
 
                     NavigationLink(value: MeDestination.document(.terms)) {
-                        MeSettingsRow(title: "Terms of Service")
+                        AppListRow(title: "Terms of Service")
                     }
                     .buttonStyle(.plain)
 
@@ -643,9 +781,8 @@ private struct PrivacyDataPage: View {
 
                 if let statusMessage {
                     Text(statusMessage)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(AppSurface.muted)
-                        .padding(.horizontal, 2)
+                        .appText(AppType.label, color: AppColor.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -665,12 +802,12 @@ private struct AboutPage: View {
                 MeValueRow(title: "Contact / Feedback", value: "Coming later")
                 MeSeparator()
                 NavigationLink(value: MeDestination.document(.privacy)) {
-                    MeSettingsRow(title: "Privacy Policy")
+                    AppListRow(title: "Privacy Policy")
                 }
                 .buttonStyle(.plain)
                 MeSeparator()
                 NavigationLink(value: MeDestination.document(.terms)) {
-                    MeSettingsRow(title: "Terms of Service")
+                    AppListRow(title: "Terms of Service")
                 }
                 .buttonStyle(.plain)
             }
@@ -693,45 +830,39 @@ private struct AccountEditPlaceholderPage: View {
 
     var body: some View {
         MePageScaffold(title: kind.title) {
-            VStack(alignment: .leading, spacing: 16) {
-                MeGroupedSection {
-                    VStack(alignment: .leading, spacing: 12) {
+            // AppCard 自带 cardPadding(16)，内容不会再落进圆角裁切区 —— 修复左边缘裁切。
+            AppCard {
+                if kind == .avatar {
+                    VStack(alignment: .leading, spacing: AppSpace.sm) {
                         Text(kind.fieldTitle)
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundStyle(AppSurface.text)
+                            .appText(AppType.label, color: AppColor.textTertiary)
 
-                        if kind == .avatar {
-                            Text("Avatar editing is coming later.")
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundStyle(AppSurface.muted)
-                        } else {
-                            TextField(kind.placeholder, text: $value)
-                                .textInputAutocapitalization(kind == .email ? .never : .words)
-                                .autocorrectionDisabled(kind == .email)
-                                .textContentType(kind.textContentType)
-                                .font(.system(size: 16, weight: .regular))
-                                .padding(.horizontal, 14)
-                                .frame(minHeight: 52)
-                                .background(AppSurface.cardSubtle)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .stroke(AppSurface.line, lineWidth: 1)
-                                )
-
-                            Text("Account editing is coming later.")
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundStyle(AppSurface.muted)
-                        }
+                        Text("Avatar editing is coming later.")
+                            .appText(AppType.body, color: AppColor.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(.vertical, 8)
+                } else {
+                    AppTextField(
+                        label: kind.fieldTitle,
+                        text: $value,
+                        placeholder: kind.placeholder,
+                        helper: "Account editing is coming later."
+                    )
+                    .textInputAutocapitalization(kind == .email ? .never : .words)
+                    .autocorrectionDisabled(kind == .email)
+                    .textContentType(kind.textContentType)
                 }
-
-                Button("Save") {}
-                    .buttonStyle(CompletionButtonStyle())
-                    .disabled(true)
-                    .opacity(0.48)
             }
+
+            // 保存尚不可用 → disabled。用 disabledFill + disabledText（6.92:1），
+            // 而非改造前的「深灰底 + .opacity(0.48)」（约 2.3:1）。
+            AppButton(
+                title: "Save",
+                variant: .primary,
+                size: .large,
+                fullWidth: true,
+                isEnabled: false
+            ) {}
         }
     }
 }
@@ -741,18 +872,16 @@ private struct LocalDocumentPage: View {
 
     var body: some View {
         MePageScaffold(title: document.title) {
-            MeGroupedSection {
-                VStack(alignment: .leading, spacing: 12) {
+            // 同 Username 页：自由内容用 AppCard，避免零内边距落进圆角裁切区。
+            AppCard {
+                VStack(alignment: .leading, spacing: AppSpace.md) {
                     Text(document.title)
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(AppSurface.text)
+                        .appText(AppType.title2)
 
                     Text(document.body)
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(AppSurface.muted)
-                        .lineSpacing(5)
+                        .appText(AppType.body, color: AppColor.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.vertical, 8)
             }
         }
     }
@@ -768,23 +897,20 @@ private struct MePageScaffold<Content: View>: View {
     }
 
     var body: some View {
-        ZStack {
-            AppSurface.background
-                .ignoresSafeArea()
-
-            ScrollView(showsIndicators: false) {
-                content()
-                    .padding(.horizontal, 24)
-                    .padding(.top, 18)
-                    .padding(.bottom, 34)
-            }
+        AppScreen {
+            content()
         }
+        // 样式 A：可返回的屏一律用原生导航栏（inline 标题 + 系统返回）。
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
     }
 }
 
+/// 分组容器。**不加内水平边距** —— 由行组件自带（AppListRow 为 16）。
+/// ⚠️ 改造前此处是 28pt 圆角 + 零内边距，内容紧贴 x=0 落进圆角曲线被 clipShape 裁切，
+///    这正是 Username 页 "Username" 与 "Account editing is coming later." 被切的原因。
+///    需要自带边距的自由内容请改用 AppCard（它有 cardPadding 16）。
 private struct MeGroupedSection<Content: View>: View {
     let title: String?
     let content: () -> Content
@@ -795,53 +921,15 @@ private struct MeGroupedSection<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             if let title {
-                Text(title)
-                    .font(.system(size: 21, weight: .bold))
-                    .foregroundStyle(AppSurface.text)
-                    .padding(.leading, 2)
+                AppSectionHeader(title: title)
             }
 
-            VStack(spacing: 0) {
+            AppGroupedList {
                 content()
             }
-            .background(AppSurface.grouped)
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(Color.white.opacity(0.72), lineWidth: 1)
-            )
-            .shadow(color: AppSurface.shadow.opacity(0.035), radius: 16, x: 0, y: 10)
         }
-    }
-}
-
-private struct MeSettingsRow: View {
-    let title: String
-    var icon: String?
-
-    var body: some View {
-        HStack(spacing: 14) {
-            if let icon {
-                MeIconBadge(systemName: icon)
-            }
-
-            Text(title)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(AppSurface.iconAccent)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-
-            Spacer(minLength: 12)
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(AppSurface.muted.opacity(0.42))
-        }
-        .frame(minHeight: 64)
-        .padding(.horizontal, 18)
-        .contentShape(Rectangle())
     }
 }
 
@@ -851,30 +939,10 @@ private struct MeValueRow: View {
     var showsChevron = false
 
     var body: some View {
-        HStack(spacing: 14) {
-            Text(title)
-                .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(AppSurface.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-
-            Spacer(minLength: 12)
-
-            Text(value)
-                .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(AppSurface.muted)
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-
-            if showsChevron {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(AppSurface.muted.opacity(0.42))
-            }
-        }
-        .frame(minHeight: 64)
-        .padding(.horizontal, 18)
-        .contentShape(Rectangle())
+        AppListRow(
+            title: title,
+            accessory: showsChevron ? .valueWithDisclosure(value) : .value(value)
+        )
     }
 }
 
@@ -882,26 +950,24 @@ private struct AvatarSettingsRow: View {
     let initial: String
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: AppSpace.md) {
             Text("Avatar")
-                .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(AppSurface.text)
+                .appText(AppType.headline)
 
-            Spacer(minLength: 12)
+            Spacer(minLength: AppSpace.md)
 
             Text(initial)
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 38, height: 38)
-                .background(AppSurface.dark)
-                .clipShape(Circle())
+                .appText(AppType.label, color: AppColor.textOnInverse)
+                .frame(width: AppLayout.avatarSM, height: AppLayout.avatarSM)
+                .background(AppColor.surfaceInverse, in: Circle())
 
-            Image(systemName: "chevron.right")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(AppSurface.muted.opacity(0.42))
+            Image(systemName: AppIcon.disclose)
+                .font(AppIcon.font(AppLayout.iconSM))
+                .foregroundStyle(AppColor.neutral400)
         }
-        .frame(minHeight: 66)
-        .padding(.horizontal, 18)
+        .padding(.horizontal, AppLayout.rowPaddingH)
+        .padding(.vertical, AppLayout.rowPaddingV)
+        .frame(minHeight: AppLayout.rowMinHeight)
         .contentShape(Rectangle())
     }
 }
@@ -911,52 +977,43 @@ private struct MePlainActionRow: View {
     var isDestructive = false
 
     var body: some View {
-        HStack {
-            Text(title)
-                .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(isDestructive ? AppSurface.coral : AppSurface.text)
-
-            Spacer()
-        }
-        .frame(minHeight: 64)
-        .padding(.horizontal, 18)
-        .contentShape(Rectangle())
+        AppListRow(title: title, accessory: .none, isDestructive: isDestructive)
     }
 }
 
-private struct MeIconBadge: View {
-    let systemName: String
-
-    var body: some View {
-        Image(systemName: systemName)
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(AppSurface.iconAccent)
-            .frame(width: 34, height: 34)
-            .background(AppSurface.iconSoft)
-            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-    }
-}
-
+/// Me 子页的行多为无图标的 MeValueRow，故缩进用 separatorInsetPlain(16)。
+/// 有图标的行（Profile / Settings 分组）直接用 AppRowSeparator()，缩进 56。
 private struct MeSeparator: View {
     var body: some View {
-        Rectangle()
-            .fill(AppSurface.line.opacity(0.86))
-            .frame(height: 1)
-            .padding(.leading, 18)
+        AppRowSeparator(inset: AppLayout.separatorInsetPlain)
     }
 }
 
 private struct ActivityCalendarPreview: View {
     let records: [DailyLearningRecord]
 
+    /// 无任何学习分钟数 = 空数据
+    private var isEmpty: Bool {
+        records.allSatisfy { $0.minutes <= 0 }
+    }
+
     var body: some View {
-        MeGroupedSection {
-            VStack(alignment: .leading, spacing: 16) {
+        AppCard {
+            VStack(alignment: .leading, spacing: AppSpace.lg) {
+                // 空数据时**网格照常绘制**（全部 heatLevel0），只是不显示图例。
+                // 改造前空数据是一整块无差别的灰，读不出"没数据"还是"没加载出来"。
                 ActivityHeatmapGrid(records: records)
 
-                HeatmapLegend()
+                if isEmpty {
+                    AppEmptyState(
+                        title: "No activity yet",
+                        message: "Review a few cards and your streak will show up here.",
+                        density: .compact
+                    )
+                } else {
+                    HeatmapLegend()
+                }
             }
-            .padding(16)
         }
     }
 }
@@ -967,13 +1024,13 @@ private struct ActivityCalendarCard: View {
 
     var body: some View {
         MeGroupedSection {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: AppSpace.lg) {
                 MonthlyCheckInCalendarGrid(
                     records: records,
                     selectedRecord: $selectedRecord
                 )
             }
-            .padding(16)
+            .padding(AppLayout.cardPadding)
         }
     }
 }
@@ -986,9 +1043,9 @@ private struct ActivityHeatmapGrid: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 4) {
+        HStack(alignment: .top, spacing: AppLayout.heatCellGap) {
             ForEach(weeks.indices, id: \.self) { weekIndex in
-                VStack(spacing: 4) {
+                VStack(spacing: AppLayout.heatCellGap) {
                     ForEach(weeks[weekIndex]) { cell in
                         HeatmapSquare(cell: cell)
                     }
@@ -996,6 +1053,7 @@ private struct ActivityHeatmapGrid: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityHidden(true)
     }
 }
 
@@ -1003,9 +1061,9 @@ private struct HeatmapSquare: View {
     let cell: HeatmapDayCell
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+        RoundedRectangle(cornerRadius: AppSpace.xs / 2, style: .continuous)
             .fill(cell.fillColor)
-            .frame(width: 10, height: 10)
+            .frame(width: AppLayout.heatCell, height: AppLayout.heatCell)
     }
 }
 
@@ -1013,23 +1071,23 @@ private struct HeatmapLegend: View {
     private let levels: [ActivityLevel] = [.none, .veryLow, .low, .medium, .high]
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: AppSpace.sm) {
             Text("Less")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(AppSurface.muted)
+                .appText(AppType.caption, color: AppColor.textTertiary)
 
-            HStack(spacing: 4) {
+            HStack(spacing: AppLayout.heatCellGap) {
                 ForEach(levels, id: \.self) { level in
-                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                    RoundedRectangle(cornerRadius: AppSpace.xs / 2, style: .continuous)
                         .fill(level.heatmapColor)
-                        .frame(width: 10, height: 10)
+                        .frame(width: AppLayout.heatCell, height: AppLayout.heatCell)
                 }
             }
 
             Text("More")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(AppSurface.muted)
+                .appText(AppType.caption, color: AppColor.textTertiary)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Activity legend, less to more")
     }
 }
 
@@ -1037,45 +1095,72 @@ private struct MonthlyCheckInCalendarGrid: View {
     let records: [DailyLearningRecord]
     @Binding var selectedRecord: DailyLearningRecord?
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
+    /// 当前展示的月份。改造前这里写死 Date()，两个箭头只是 Image、没有 action，
+    /// 是一个点了没反应的假控件。
+    @State private var displayedMonth: Date = Date()
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: AppSpace.xs), count: 7)
     private let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
     private var cells: [CalendarDayCell] {
-        monthCells(for: Date(), records: records)
+        monthCells(for: displayedMonth, records: records)
+    }
+
+    /// 可翻阅范围 = 后端实际返回的活跃数据区间所覆盖的月份。
+    /// 超出范围翻页只会看到整月空白，不如直接禁用。
+    private var monthBounds: (earliest: Date, latest: Date) {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let latest = calendar.dateInterval(of: .month, for: today)?.start ?? today
+        let earliestRecord = records.map(\.date).min() ?? today
+        let earliest = calendar.dateInterval(of: .month, for: earliestRecord)?.start ?? latest
+        return (earliest, latest)
+    }
+
+    private var canGoBack: Bool {
+        let calendar = Calendar.current
+        guard let start = calendar.dateInterval(of: .month, for: displayedMonth)?.start else { return false }
+        return start > monthBounds.earliest
+    }
+
+    private var canGoForward: Bool {
+        let calendar = Calendar.current
+        guard let start = calendar.dateInterval(of: .month, for: displayedMonth)?.start else { return false }
+        return start < monthBounds.latest
+    }
+
+    private func step(_ months: Int) {
+        guard let next = Calendar.current.date(byAdding: .month, value: months, to: displayedMonth) else { return }
+        displayedMonth = next
+        selectedRecord = nil          // 换月后旧的选中日期已不在视野内
     }
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: AppSpace.md) {
             HStack {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(AppSurface.muted.opacity(0.45))
-                    .frame(width: 32, height: 32)
+                monthStepButton(icon: AppIcon.back, enabled: canGoBack, label: "Previous month") { step(-1) }
 
                 Spacer()
 
-                Text(monthTitle(for: Date()))
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(AppSurface.text)
+                Text(monthTitle(for: displayedMonth))
+                    .appText(AppType.headline)
+                    .monospacedDigit()
 
                 Spacer()
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(AppSurface.muted.opacity(0.45))
-                    .frame(width: 32, height: 32)
+                monthStepButton(icon: AppIcon.disclose, enabled: canGoForward, label: "Next month") { step(1) }
             }
+            .animation(AppMotion.standard, value: displayedMonth)
 
-            LazyVGrid(columns: columns, spacing: 4) {
+            LazyVGrid(columns: columns, spacing: AppSpace.xs) {
                 ForEach(weekdays, id: \.self) { weekday in
                     Text(weekday)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(AppSurface.muted.opacity(0.74))
-                        .frame(height: 20)
+                        .appText(AppType.caption, color: AppColor.textTertiary)
+                        .frame(height: AppSpace.xl)
                 }
             }
 
-            LazyVGrid(columns: columns, spacing: 8) {
+            LazyVGrid(columns: columns, spacing: AppSpace.sm) {
                 ForEach(cells) { cell in
                     CalendarDateCell(
                         cell: cell,
@@ -1088,6 +1173,19 @@ private struct MonthlyCheckInCalendarGrid: View {
                 }
             }
         }
+    }
+
+    private func monthStepButton(icon: String, enabled: Bool, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(AppIcon.font(AppLayout.iconSM))
+                .foregroundStyle(enabled ? AppColor.iconDefault : AppColor.disabledIcon)
+                .frame(width: AppLayout.minHitTarget, height: AppLayout.minHitTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel(label)
     }
 }
 
@@ -1106,17 +1204,17 @@ private struct CalendarDateCell: View {
                     .frame(width: 36, height: 36)
 
                 Circle()
-                    .stroke(isSelected ? AppSurface.accent.opacity(0.42) : Color.clear, lineWidth: 1.5)
+                    .stroke(isSelected ? AppColor.primary : Color.clear, lineWidth: AppLayout.focusRingWidth)
                     .frame(width: 38, height: 38)
 
                 VStack(spacing: 0) {
                     Text(cell.dayText)
-                        .font(.system(size: 13, weight: isSelected ? .bold : .regular))
-                        .foregroundStyle(cell.date == nil ? Color.clear : AppSurface.text)
+                        .font(.system(size: AppType.label.size, weight: isSelected ? .bold : .regular))
+                        .foregroundStyle(cell.date == nil ? Color.clear : AppColor.textPrimary)
                         .monospacedDigit()
 
                     Image(systemName: "checkmark")
-                        .font(.system(size: 7, weight: .bold))
+                        .font(.system(size: AppSpace.sm, weight: .bold))
                         .foregroundStyle(cell.record?.level.checkColor ?? Color.clear)
                         .frame(height: 9)
                 }
@@ -1134,12 +1232,11 @@ private struct ActivityDayDetailCard: View {
 
     var body: some View {
         MeGroupedSection {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: AppSpace.md) {
                 Text(dayDetailTitle(for: record.date))
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(AppSurface.text)
+                    .appText(AppType.headline)
 
-                VStack(spacing: 10) {
+                VStack(spacing: AppSpace.sm) {
                     MeValueRow(title: "Learning time", value: "\(record.minutes) min")
                     MeSeparator()
                     MeValueRow(title: "Cards reviewed", value: "\(record.reviewed)")
@@ -1149,7 +1246,7 @@ private struct ActivityDayDetailCard: View {
                     MeValueRow(title: "New cards added", value: "\(record.newCards)")
                 }
             }
-            .padding(16)
+            .padding(AppLayout.cardPadding)
         }
     }
 }
@@ -1217,48 +1314,34 @@ private enum ActivityLevel: Hashable {
         }
     }
 
+    /// 5 档实色阶，不再用 .opacity() —— 透明度叠在不同底色上会漂移，
+    /// 且深色模式下会整体失真。取值见 AppColor.heatScale。
     var heatmapColor: Color {
         switch self {
-        case .none:
-            return Color(hex: 0xF1F3F7)
-        case .veryLow:
-            return AppSurface.accent.opacity(0.18)
-        case .low:
-            return AppSurface.accent.opacity(0.34)
-        case .medium:
-            return AppSurface.accent.opacity(0.58)
-        case .high:
-            return AppSurface.accent
+        case .none:    return AppColor.heatLevel0
+        case .veryLow: return AppColor.heatLevel1
+        case .low:     return AppColor.heatLevel2
+        case .medium:  return AppColor.heatLevel3
+        case .high:    return AppColor.heatLevel4
         }
     }
 
+    /// 与热力图共用同一套 5 档实色阶，保证同一数据在两处呈现一致。
     var checkColor: Color {
         switch self {
-        case .none:
-            return .clear
-        case .veryLow:
-            return AppSurface.accent.opacity(0.34)
-        case .low:
-            return AppSurface.accent.opacity(0.52)
-        case .medium:
-            return AppSurface.accent.opacity(0.74)
-        case .high:
-            return AppSurface.accent
+        case .none: return .clear
+        default:    return heatmapColor
         }
     }
 
+    /// 月历格底：始终比 check 浅一档，none 透明。
     var calendarTint: Color {
         switch self {
-        case .none:
-            return .clear
-        case .veryLow:
-            return AppSurface.accent.opacity(0.05)
-        case .low:
-            return AppSurface.accent.opacity(0.08)
-        case .medium:
-            return AppSurface.accent.opacity(0.12)
-        case .high:
-            return AppSurface.accent.opacity(0.17)
+        case .none:    return .clear
+        case .veryLow: return AppColor.heatLevel0
+        case .low:     return AppColor.heatLevel1
+        case .medium:  return AppColor.heatLevel1
+        case .high:    return AppColor.heatLevel2
         }
     }
 }
@@ -1267,6 +1350,7 @@ private enum MeDestination: Hashable {
     case achievements
     case account
     case connectedAccounts
+    case mcpAccess
     case learningPreferences
     case notifications
     case appearance
@@ -1302,10 +1386,12 @@ private enum AccountEditKind: Hashable {
 
     var placeholder: String {
         switch self {
+        // 输入框不放示例值 —— 示例会被误读为已填内容。
+        // 字段含义由上方 label 承担。
         case .avatar: return ""
-        case .username: return "Demo User"
-        case .email: return "demo@example.com"
-        case .password: return "Enter a new password"
+        case .username: return ""
+        case .email: return ""
+        case .password: return ""
         }
     }
 

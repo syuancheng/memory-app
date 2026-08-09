@@ -5,7 +5,7 @@ struct CardsHierarchyView: View {
         NavigationStack {
             CardsRootPage()
         }
-        .tint(AppSurface.accent)
+        .tint(AppColor.primary)
     }
 }
 
@@ -51,7 +51,7 @@ private struct CardsRootPage: View {
             CardsSearchField(text: $searchText, prompt: "Search subjects, sets, cards...")
 
             CardsSectionTitle("Subjects")
-                .padding(.top, 22)
+                .padding(.top, AppSpace.sm)
 
             CardsLoadState(isLoading: isLoading, errorMessage: errorMessage)
 
@@ -60,9 +60,9 @@ private struct CardsRootPage: View {
                     title: searchText.isEmpty ? "No subjects yet" : "No matching subjects",
                     message: searchText.isEmpty ? "Create your first English learning subject." : "Try another subject, set, or card keyword."
                 )
-                .padding(.top, 32)
+                .padding(.top, AppSpace.sm)
             } else {
-                LazyVStack(spacing: 16) {
+                LazyVStack(spacing: AppLayout.cardGap) {
                     ForEach(filteredSubjects) { subject in
                         CardsSubjectRow(
                             subject: subject,
@@ -82,7 +82,7 @@ private struct CardsRootPage: View {
                         )
                     }
                 }
-                .padding(.top, 14)
+                
             }
         }
         .navigationDestination(item: $selectedSubject) { subject in
@@ -165,7 +165,7 @@ private struct CardsRootPage: View {
             }
             .disabled(subjects.isEmpty)
         } label: {
-            CardsIconButton(systemName: "plus", tint: AppSurface.accent)
+            CardsIconButton(systemName: AppIcon.add, tint: AppColor.primary)
         }
         .accessibilityLabel("Create")
     }
@@ -248,7 +248,7 @@ private struct SubjectSetsPage: View {
             CardsSearchField(text: $searchText, prompt: "Search sets or cards...")
 
             CardsSectionTitle("Sets")
-                .padding(.top, 22)
+                .padding(.top, AppSpace.sm)
 
             CardsLoadState(isLoading: isLoading, errorMessage: errorMessage)
 
@@ -257,9 +257,9 @@ private struct SubjectSetsPage: View {
                     title: searchText.isEmpty ? "No sets yet" : "No matching sets",
                     message: searchText.isEmpty ? "Create a set under this subject." : "Try another set or card keyword."
                 )
-                .padding(.top, 32)
+                .padding(.top, AppSpace.sm)
             } else {
-                LazyVStack(spacing: 16) {
+                LazyVStack(spacing: AppLayout.cardGap) {
                     ForEach(filteredSets) { set in
                         CardsSetRow(
                             set: set,
@@ -277,7 +277,7 @@ private struct SubjectSetsPage: View {
                         )
                     }
                 }
-                .padding(.top, 14)
+                
             }
         }
         .navigationDestination(item: $selectedSet) { set in
@@ -347,7 +347,7 @@ private struct SubjectSetsPage: View {
                 Label("Add Card", systemImage: "plus.rectangle.on.rectangle")
             }
         } label: {
-            CardsIconButton(systemName: "plus", tint: AppSurface.accent)
+            CardsIconButton(systemName: AppIcon.add, tint: AppColor.primary)
         }
         .accessibilityLabel("Create")
     }
@@ -415,7 +415,7 @@ private struct SetCardsPage: View {
             CardsSearchField(text: $searchText, prompt: "Search cards...")
 
             CardsSectionTitle("Cards")
-                .padding(.top, 22)
+                .padding(.top, AppSpace.sm)
 
             CardsLoadState(isLoading: isLoading, errorMessage: errorMessage)
 
@@ -424,9 +424,9 @@ private struct SetCardsPage: View {
                     title: searchText.isEmpty ? "No cards yet" : "No matching cards",
                     message: searchText.isEmpty ? "Add your first card to this set." : "Try another prompt, answer, or tag keyword."
                 )
-                .padding(.top, 32)
+                .padding(.top, AppSpace.sm)
             } else {
-                LazyVStack(spacing: 16) {
+                LazyVStack(spacing: AppLayout.cardGap) {
                     ForEach(filteredCards) { card in
                         CardsCardRow(
                             card: card,
@@ -439,7 +439,7 @@ private struct SetCardsPage: View {
                         )
                     }
                 }
-                .padding(.top, 14)
+                
             }
         }
         .task {
@@ -492,7 +492,7 @@ private struct SetCardsPage: View {
                 Label("Add Card", systemImage: "plus.rectangle.on.rectangle")
             }
         } label: {
-            CardsIconButton(systemName: "plus", tint: AppSurface.accent)
+            CardsIconButton(systemName: AppIcon.add, tint: AppColor.primary)
         }
         .accessibilityLabel("Create")
     }
@@ -566,84 +566,49 @@ private struct CardsManagementPage<Content: View, Trailing: View>: View {
         self.content = content
     }
 
+    // 导航样式按「本屏可否返回」自动分流，三个调用点无需改动：
+    //   onBack == nil  → Tab 根屏（CardsRootPage）→ 样式 B 大标题头
+    //   onBack != nil  → 被 push 的屏（SubjectSetsPage / SetCardsPage）→ 样式 A 原生导航栏
+    // 样式 A 下 NavigationStack 已自带返回键，故不再自绘；subtitle 降为内容首行，信息不丢。
     var body: some View {
-        ZStack {
-            AppSurface.background
-                .ignoresSafeArea()
-
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    CardsManagementHeader(title: title, subtitle: subtitle, onBack: onBack, trailing: trailing)
-                        .padding(.bottom, 26)
-
-                    content()
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 18)
-                .padding(.bottom, 32)
+        if onBack == nil {
+            AppScreen {
+                AppLargeHeader(title: title, subtitle: subtitle, trailing: trailing)
+                content()
             }
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .navigationBar)
-    }
-}
-
-private struct CardsManagementHeader<Trailing: View>: View {
-    let title: String
-    let subtitle: String
-    var onBack: (() -> Void)?
-    let trailing: () -> Trailing
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            if let onBack {
-                Button {
-                    onBack()
-                } label: {
-                    CardsIconButton(systemName: "chevron.left", tint: AppSurface.text)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Back")
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(AppSurface.text)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.72)
-
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
+        } else {
+            AppScreen {
                 Text(subtitle)
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(AppSurface.muted)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
+                    .appText(AppType.body, color: AppColor.textTertiary)
+                    .lineLimit(2)
+
+                content()
             }
-
-            Spacer(minLength: 12)
-
-            trailing()
+            .appNavBar(title, trailing: trailing)
         }
-        .frame(minHeight: 62, alignment: .top)
     }
 }
 
+/// Menu 的 label 必须是普通 View（不能是 Button），所以这里不能直接用 AppIconButton。
+/// 视觉与 AppIconButton(.plain) 保持一致：36pt 圆 + border 描边，外层热区 44。
 private struct CardsIconButton: View {
     let systemName: String
-    let tint: Color
+    var tint: Color = AppColor.iconDefault
 
     var body: some View {
-        Image(systemName: systemName)
-            .font(.system(size: 18, weight: .bold))
-            .foregroundStyle(tint)
-            .frame(width: 44, height: 44)
-            .background(.white)
-            .clipShape(Circle())
-            .overlay(
-                Circle()
-                    .stroke(AppSurface.line, lineWidth: 1)
-            )
-            .shadow(color: AppSurface.shadow.opacity(0.08), radius: 16, x: 0, y: 8)
+        Circle()
+            .fill(AppColor.surface)
+            .overlay { Circle().strokeBorder(AppColor.border, lineWidth: AppLayout.hairline) }
+            .frame(width: AppLayout.navIconButton, height: AppLayout.navIconButton)
+            .overlay {
+                Image(systemName: systemName)
+                    .font(AppIcon.font(AppLayout.iconMD))
+                    .foregroundStyle(tint)
+            }
+            .frame(width: AppLayout.minHitTarget, height: AppLayout.minHitTarget)
+            .contentShape(Circle())
     }
 }
 
@@ -651,26 +616,37 @@ private struct CardsSearchField: View {
     @Binding var text: String
     let prompt: String
 
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(AppSurface.muted)
+    @FocusState private var isFocused: Bool
 
-            TextField(prompt, text: $text)
-                .font(.system(size: 14))
-                .foregroundStyle(AppSurface.text)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+    var body: some View {
+        HStack(spacing: AppSpace.sm) {
+            Image(systemName: AppIcon.search)
+                .font(AppIcon.font(AppLayout.iconSM))
+                .foregroundStyle(AppColor.iconMuted)
+
+            ZStack(alignment: .leading) {
+                if text.isEmpty {
+                    Text(prompt)
+                        .appText(AppType.body, color: AppColor.textPlaceholder)
+                        .allowsHitTesting(false)
+                }
+                TextField("", text: $text)
+                    .appText(AppType.body)
+                    .focused($isFocused)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
         }
-        .padding(.horizontal, 18)
-        .frame(maxWidth: .infinity, minHeight: 46)
-        .background(AppSurface.cardSubtle)
-        .clipShape(Capsule())
-        .overlay(
-            Capsule()
-                .stroke(AppSurface.line, lineWidth: 1)
-        )
+        .padding(.horizontal, AppSpace.lg)
+        .frame(maxWidth: .infinity, minHeight: AppLayout.buttonHeightMedium)
+        .background(isFocused ? AppColor.surface : AppColor.surfaceSunken, in: Capsule())
+        .overlay {
+            Capsule().strokeBorder(
+                isFocused ? AppColor.focusRing : AppColor.borderStrong,
+                lineWidth: isFocused ? AppLayout.focusRingWidth : AppLayout.hairline
+            )
+        }
+        .animation(AppMotion.instant, value: isFocused)
     }
 }
 
@@ -682,9 +658,7 @@ private struct CardsSectionTitle: View {
     }
 
     var body: some View {
-        Text(title)
-            .font(.system(size: 20, weight: .bold))
-            .foregroundStyle(AppSurface.text)
+        AppSectionHeader(title: title)
     }
 }
 
@@ -697,18 +671,16 @@ private struct CardsLoadState: View {
             HStack {
                 Spacer()
                 ProgressView()
-                    .tint(AppSurface.accent)
+                    .tint(AppColor.primary)
                 Spacer()
             }
-            .padding(.top, 20)
         }
 
         if let errorMessage {
             Text(errorMessage)
-                .font(.system(size: 13))
-                .foregroundStyle(AppSurface.coral)
+                .appText(AppType.label, color: AppColor.dangerText)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 14)
         }
     }
 }
@@ -718,26 +690,9 @@ private struct CardsEmptyState: View {
     let message: String
 
     var body: some View {
-        VStack(spacing: 8) {
-            Text(title)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(AppSurface.text)
-
-            Text(message)
-                .font(.system(size: 14))
-                .foregroundStyle(AppSurface.muted)
-                .multilineTextAlignment(.center)
+        AppCard(padding: 0) {
+            AppEmptyState(title: title, message: message)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 38)
-        .padding(.horizontal, 20)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(AppSurface.line, lineWidth: 1)
-        )
-        .shadow(color: AppSurface.shadow.opacity(0.04), radius: 14, x: 0, y: 8)
     }
 }
 
@@ -746,35 +701,32 @@ private struct CardsSubjectRow: View {
     let initial: String
     let description: String
     let setCount: Int
-    let tint: Color
+    let tint: AppColor.SubjectAccent
     let onOpen: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: AppSpace.md) {
             InitialBadge(text: initial, tint: tint)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: AppSpace.xs) {
                 Text(subject.name)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(AppSurface.text)
+                    .appText(AppType.headline)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
 
                 Text(description)
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppSurface.muted)
+                    .appText(AppType.body, color: AppColor.textTertiary)
                     .lineLimit(2)
 
                 Text("\(setCount) sets · \(subject.cardCount) cards")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(tint)
+                    .appText(AppType.label, color: tint.text)   // .text 而非 .fill —— 保证 AA
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: AppSpace.sm)
 
             CardsRowMenu(
                 editTitle: "Edit Subject",
@@ -783,12 +735,12 @@ private struct CardsSubjectRow: View {
                 onDelete: onDelete
             )
 
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(AppSurface.slateLight)
+            Image(systemName: AppIcon.disclose)
+                .font(AppIcon.font(AppLayout.iconSM))
+                .foregroundStyle(AppColor.neutral400)
         }
-        .cardsRowSurface(minHeight: 96)
-        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .cardsRowSurface()
+        .contentShape(AppRadius.shape(AppRadius.lg))
         .onTapGesture {
             onOpen()
         }
@@ -798,35 +750,32 @@ private struct CardsSubjectRow: View {
 private struct CardsSetRow: View {
     let set: AppTag
     let description: String
-    let tint: Color
+    let tint: AppColor.SubjectAccent
     let onOpen: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: AppSpace.md) {
             InitialBadge(text: "Set", tint: tint)
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: AppSpace.xs) {
                 Text(set.name)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(AppSurface.text)
+                    .appText(AppType.headline)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
 
                 Text(description)
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppSurface.muted)
+                    .appText(AppType.body, color: AppColor.textTertiary)
                     .lineLimit(1)
 
                 Text("\(set.cardCount) cards · \(set.dueCount) due")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(tint)
+                    .appText(AppType.label, color: tint.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: AppSpace.sm)
 
             CardsRowMenu(
                 editTitle: "Edit Set",
@@ -835,12 +784,12 @@ private struct CardsSetRow: View {
                 onDelete: onDelete
             )
 
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(AppSurface.slateLight)
+            Image(systemName: AppIcon.disclose)
+                .font(AppIcon.font(AppLayout.iconSM))
+                .foregroundStyle(AppColor.neutral400)
         }
-        .cardsRowSurface(minHeight: 100)
-        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .cardsRowSurface()
+        .contentShape(AppRadius.shape(AppRadius.lg))
         .onTapGesture {
             onOpen()
         }
@@ -853,11 +802,10 @@ private struct CardsCardRow: View {
     let onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppSpace.sm) {
+            HStack(alignment: .top, spacing: AppSpace.md) {
                 Text(card.answerText)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(AppSurface.text)
+                    .appText(AppType.headline)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -870,35 +818,28 @@ private struct CardsCardRow: View {
             }
 
             Text(card.frontText)
-                .font(.system(size: 13))
-                .foregroundStyle(AppSurface.muted)
+                .appText(AppType.body, color: AppColor.textTertiary)
                 .lineLimit(2)
 
-            HStack(alignment: .center, spacing: 8) {
-                Text(cardMetadata(card))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(AppSurface.muted)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-
-                Spacer(minLength: 8)
-            }
+            Text(cardMetadata(card))
+                .appText(AppType.caption, color: AppColor.textTertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .cardsRowSurface(minHeight: 112)
+        .cardsRowSurface()
     }
 }
 
 private struct InitialBadge: View {
     let text: String
-    let tint: Color
+    let tint: AppColor.SubjectAccent
 
     var body: some View {
         Text(text)
-            .font(.system(size: text.count > 1 ? 12 : 16, weight: .bold))
-            .foregroundStyle(tint)
-            .frame(width: 48, height: 48)
-            .background(tint.opacity(0.13))
-            .clipShape(Circle())
+            .appText(text.count > 1 ? AppType.caption : AppType.headline, color: tint.text)
+            .frame(width: AppLayout.avatarMD, height: AppLayout.avatarMD)
+            .background(tint.soft, in: Circle())   // 实色浅底，不再用 .opacity(0.13)
     }
 }
 
@@ -922,13 +863,14 @@ private struct CardsRowMenu: View {
                 Label(deleteTitle, systemImage: "trash")
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(AppSurface.muted)
-                .frame(width: 34, height: 34)
+            Image(systemName: AppIcon.more)
+                .font(AppIcon.font(AppLayout.iconMD))
+                .foregroundStyle(AppColor.iconMuted)
+                .frame(width: AppLayout.minHitTarget, height: AppLayout.minHitTarget)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("More actions")
     }
 }
 
@@ -971,12 +913,12 @@ private struct SubjectEditPage: View {
             }
         ) {
             CardsFormSection {
-                CardsLabeledTextField(title: "Subject name", text: $name, prompt: "Speaking")
-                CardsLabeledTextArea(title: "Description", text: $description, prompt: "Polite requests, meetings, daily output", minHeight: 92)
+                CardsLabeledTextField(title: "Subject name", text: $name, prompt: "")
+                CardsLabeledTextArea(title: "Description", text: $description, prompt: "", minHeight: 92)
             }
 
             CardsFormSection {
-                CardsLabeledTextField(title: "Icon / initial", text: $initial, prompt: "S")
+                CardsLabeledTextField(title: "Icon / initial", text: $initial, prompt: "")
                 CardsAccentPicker(selection: $accent)
             }
 
@@ -1105,9 +1047,9 @@ private struct SetEditPage: View {
             }
         ) {
             CardsFormSection {
-                CardsLabeledTextField(title: "Set name", text: $name, prompt: "Polite Requests")
+                CardsLabeledTextField(title: "Set name", text: $name, prompt: "")
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: AppSpace.sm) {
                     CardsFieldLabel("Parent Subject")
                     Picker("Parent Subject", selection: $selectedSubjectID) {
                         ForEach(subjects) { subject in
@@ -1119,11 +1061,11 @@ private struct SetEditPage: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                CardsLabeledTextArea(title: "Description", text: $description, prompt: "Softer ways to ask, follow up, and confirm", minHeight: 88)
+                CardsLabeledTextArea(title: "Description", text: $description, prompt: "", minHeight: 88)
             }
 
             CardsFormSection {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: AppSpace.sm) {
                     CardsFieldLabel("Default review mode")
                     Picker("Default review mode", selection: $defaultMode) {
                         ForEach(SetDefaultReviewMode.allCases) { mode in
@@ -1230,7 +1172,7 @@ private struct CardEditPage: View {
         let initialSetID = fixedSet?.id ?? card?.tags.first?.id ?? ""
         _selectedSubjectID = State(initialValue: initialSubjectID)
         _selectedSetID = State(initialValue: initialSetID)
-        _cardType = State(initialValue: CardsCardType(rawValue: card?.cardType ?? "") ?? .speaking)
+        _cardType = State(initialValue: CardsCardType(normalizing: card?.cardType))
         _frontText = State(initialValue: card?.frontText ?? "")
         _answerText = State(initialValue: card?.answerText ?? "")
         _grammarPhraseText = State(initialValue: card?.grammarPhrases
@@ -1259,7 +1201,7 @@ private struct CardEditPage: View {
             }
         ) {
             CardsFormSection {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: AppSpace.sm) {
                     CardsFieldLabel("Subject")
                     Picker("Subject", selection: $selectedSubjectID) {
                         Text("Select subject").tag("")
@@ -1277,7 +1219,7 @@ private struct CardEditPage: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: AppSpace.sm) {
                     CardsFieldLabel("Set")
                     Picker("Set", selection: $selectedSetID) {
                         Text("Select set").tag("")
@@ -1290,7 +1232,7 @@ private struct CardEditPage: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: AppSpace.sm) {
                     CardsFieldLabel("Card type")
                     Picker("Card type", selection: $cardType) {
                         ForEach(CardsCardType.allCases) { type in
@@ -1302,15 +1244,17 @@ private struct CardEditPage: View {
             }
 
             CardsFormSection {
-                CardsLabeledTextArea(title: "Front / Prompt", text: $frontText, prompt: "有没有可能明天之前拿到？", minHeight: 126)
-                CardsLabeledTextArea(title: "Answer", text: $answerText, prompt: "Any chance of getting it by tomorrow?", minHeight: 126)
+                CardsLabeledTextArea(title: "Front", text: $frontText,
+                                     prompt: "", minHeight: 126)
+                CardsLabeledTextArea(title: "Answer", text: $answerText,
+                                     prompt: "", minHeight: 126)
             }
 
             CardsFormSection {
                 CardsLabeledTextArea(
                     title: "Grammar / Phrases",
                     text: $grammarPhraseText,
-                    prompt: "Any chance of + doing\nby tomorrow\nget it",
+                    prompt: "",
                     minHeight: 168
                 )
             }
@@ -1374,7 +1318,7 @@ private struct CardEditPage: View {
             subjectID: selectedSubjectID,
             tagIDs: tagIDs,
             cardType: cardType.rawValue,
-            direction: card?.direction ?? "zh_to_en",
+            direction: CardDirection.detected(fromFront: frontText.trimmed).rawValue,
             frontText: frontText.trimmed,
             answerText: answerText.trimmed,
             grammarPhrases: grammarPhraseText
@@ -1441,25 +1385,32 @@ private struct CardsEditPageScaffold<Content: View>: View {
     }
 
     var body: some View {
-        CardsManagementPage(
-            title: title,
-            subtitle: subtitle,
-            onBack: onBack,
-            trailing: {
-                Button {
-                    Task {
-                        await onSave()
-                    }
-                } label: {
-                    CardsIconButton(systemName: "checkmark", tint: canSave ? AppSurface.accent : AppSurface.muted)
+        // 样式 A：编辑页是可返回的屏 → 原生导航栏 + inline 标题 + 右侧主操作。
+        // 改造前是「圆形返回 + 34pt 大标题 + 副标题」，那是 Tab 根屏才用的样式 B，
+        // 用在可返回的屏上正是 #1「三套导航并存」的根源。
+        // 编辑页由 .fullScreenCover 呈现，没有 NavigationStack 祖先 —— 必须自带一个，
+        // 否则 .toolbar 不会渲染（标题与 Save 会整个消失）。
+        // 又因为是 present 而非 push，dismiss 用 .close（xmark）而不是返回箭头。
+        NavigationStack {
+            AppScreen {
+                Text(subtitle)
+                    .appText(AppType.body, color: AppColor.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                VStack(spacing: AppLayout.cardGap) {
+                    content()
                 }
-                .disabled(!canSave)
-                .buttonStyle(.plain)
-                .accessibilityLabel("Save")
             }
-        ) {
-            VStack(spacing: 16) {
-                content()
+            .appNavBar(title, dismiss: .close, onDismiss: onBack) {
+                // 主操作 = primary 实心。灰色只属于 disabled（#4 / #5）。
+                AppButton(
+                    title: "Save",
+                    variant: .primary,
+                    size: .small,
+                    isEnabled: canSave
+                ) {
+                    Task { await onSave() }
+                }
             }
         }
         .toolbar(.hidden, for: .tabBar)
@@ -1474,18 +1425,11 @@ private struct CardsFormSection<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            content()
+        AppCard {
+            VStack(alignment: .leading, spacing: AppSpace.lg) {
+                content()
+            }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(AppSurface.line, lineWidth: 1)
-        )
-        .shadow(color: AppSurface.shadow.opacity(0.045), radius: 14, x: 0, y: 8)
     }
 }
 
@@ -1498,8 +1442,7 @@ private struct CardsFieldLabel: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(AppSurface.textSecondary)
+            .appText(AppType.label, color: AppColor.textTertiary)
     }
 }
 
@@ -1509,20 +1452,7 @@ private struct CardsLabeledTextField: View {
     let prompt: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            CardsFieldLabel(title)
-            TextField(prompt, text: $text)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(AppSurface.text)
-                .padding(.horizontal, 14)
-                .frame(minHeight: 48)
-                .background(AppSurface.cardSubtle)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(AppSurface.line, lineWidth: 1)
-                )
-        }
+        AppTextField(label: title, text: $text, placeholder: prompt)
     }
 }
 
@@ -1533,21 +1463,7 @@ private struct CardsLabeledTextArea: View {
     let minHeight: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            CardsFieldLabel(title)
-            TextField(prompt, text: $text, axis: .vertical)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(AppSurface.text)
-                .lineLimit(3...8)
-                .padding(14)
-                .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
-                .background(AppSurface.cardSubtle)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(AppSurface.line, lineWidth: 1)
-                )
-        }
+        AppTextArea(label: title, text: $text, placeholder: prompt, minHeight: minHeight)
     }
 }
 
@@ -1555,32 +1471,42 @@ private struct CardsAccentPicker: View {
     @Binding var selection: CardsAccentChoice
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppSpace.sm) {
             CardsFieldLabel("Accent color")
-            HStack(spacing: 12) {
+
+            // 色圆视觉 32pt，热区外扩至 44（改造前整个可点区域只有 32×32，低于 HIG 下限）。
+            HStack(spacing: AppSpace.xs) {
                 ForEach(CardsAccentChoice.allCases) { accent in
                     Button {
                         selection = accent
                     } label: {
                         Circle()
-                            .fill(accent.color)
-                            .frame(width: 32, height: 32)
-                            .overlay(
-                                Circle()
-                                    .stroke(selection == accent ? AppSurface.text : Color.clear, lineWidth: 2)
-                            )
+                            .fill(accent.palette.fill)
+                            .frame(width: AppLayout.avatarSM, height: AppLayout.avatarSM)
                             .overlay {
                                 if selection == accent {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundStyle(.white)
+                                    Image(systemName: AppIcon.confirm)
+                                        .font(AppIcon.font(AppLayout.iconSM))
+                                        .foregroundStyle(accent.palette.onFill)
                                 }
                             }
+                            // 选中环走中性最深色，而非再引入一个强调色
+                            .overlay {
+                                Circle().strokeBorder(
+                                    selection == accent ? AppColor.textPrimary : Color.clear,
+                                    lineWidth: AppLayout.focusRingWidth
+                                )
+                            }
+                            .frame(width: AppLayout.minHitTarget, height: AppLayout.minHitTarget)
+                            .contentShape(Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(AppPressableStyle())
                     .accessibilityLabel(accent.title)
+                    .accessibilityAddTraits(selection == accent ? .isSelected : [])
                 }
             }
+            // 抵消热区外扩带来的视觉左缩进，让色圆与上方标签对齐
+            .padding(.horizontal, -(AppLayout.minHitTarget - AppLayout.avatarSM) / 2)
         }
     }
 }
@@ -1592,35 +1518,25 @@ private struct CardsDangerZone: View {
     let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Danger Zone")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(AppSurface.coral)
+        AppCard {
+            VStack(alignment: .leading, spacing: AppSpace.md) {
+                Text("Danger Zone")
+                    .appText(AppType.label, color: AppColor.dangerText)
 
-            Text(message)
-                .font(.system(size: 13))
-                .foregroundStyle(AppSurface.muted)
+                Text(message)
+                    .appText(AppType.body, color: AppColor.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            Button(role: .destructive) {
-                action()
-            } label: {
-                Text(actionTitle)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(AppSurface.coral)
-                    .frame(maxWidth: .infinity, minHeight: 48)
-                    .background(AppSurface.roseSoft)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                AppButton(
+                    title: actionTitle,
+                    variant: .destructive,
+                    size: .medium,
+                    fullWidth: true,
+                    action: action
+                )
+                .padding(.top, AppSpace.xs)
             }
-            .buttonStyle(.plain)
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(AppSurface.rose.opacity(0.16), lineWidth: 1)
-        )
     }
 }
 
@@ -1629,12 +1545,11 @@ private struct CardsFormError: View {
 
     var body: some View {
         Text(message)
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(AppSurface.coral)
+            .appText(AppType.label, color: AppColor.dangerText)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(AppSurface.roseSoft)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(AppSpace.md)
+            .background(AppColor.dangerSoft, in: AppRadius.shape(AppRadius.md))
     }
 }
 
@@ -1657,15 +1572,13 @@ private enum CardsAccentChoice: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    var color: Color {
-        switch self {
-        case .indigo: return AppSurface.accent
-        case .green: return AppSurface.green
-        case .amber: return AppSurface.amber
-        case .sky: return AppSurface.sky
-        case .purple: return AppSurface.purple
-        }
+    /// Subject 身份色板。见 AppColor.subjectAccents —— 它是分类色，不是品牌主色，
+    /// 只允许用于 subject 自身的标识，禁止用于导航 / 按钮 / 选中态。
+    var palette: AppColor.SubjectAccent {
+        AppColor.subjectAccent(rawValue)
     }
+
+    var color: Color { palette.fill }
 }
 
 private enum SetDefaultReviewMode: String, CaseIterable, Identifiable, Codable {
@@ -1683,18 +1596,22 @@ private enum SetDefaultReviewMode: String, CaseIterable, Identifiable, Codable {
 }
 
 private enum CardsCardType: String, CaseIterable, Identifiable {
-    case speaking = "speaking_expression"
-    case grammar = "grammar"
+    case word = "word"
     case sentence = "sentence"
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .speaking: return "Speaking"
-        case .grammar: return "Grammar"
+        case .word: return "Word"
         case .sentence: return "Sentence"
         }
+    }
+
+    /// 兼容历史值：早期的 speaking_expression / grammar 语义上都是整句，并入 sentence。
+    /// 与后端 service.NormalizeCardType 行为一致。
+    init(normalizing raw: String?) {
+        self = CardsCardType(rawValue: (raw ?? "").trimmingCharacters(in: .whitespaces)) ?? .sentence
     }
 }
 
@@ -1770,18 +1687,13 @@ private struct CardsPressStyle: ButtonStyle {
 }
 
 private extension View {
-    func cardsRowSurface(minHeight: CGFloat) -> some View {
+    /// 行卡容器。高度由内容决定（原先 96/100/112 三个写死值），
+    /// 表面 / 圆角 / 描边 / 阴影统一走 appSurface(.card)。
+    func cardsRowSurface() -> some View {
         self
-            .padding(.horizontal, 18)
-            .padding(.vertical, 16)
-            .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
-            .background(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(AppSurface.line, lineWidth: 1)
-            )
-            .shadow(color: AppSurface.shadow.opacity(0.045), radius: 14, x: 0, y: 8)
+            .padding(AppLayout.cardPadding)
+            .frame(maxWidth: .infinity, minHeight: AppLayout.minHitTarget, alignment: .leading)
+            .appSurface(.card)
     }
 }
 
@@ -1802,14 +1714,16 @@ private extension String {
     }
 }
 
-private func rowTint(for subject: AppSubject) -> Color {
-    let colors = [AppSurface.accent, AppSurface.green, AppSurface.amber, AppSurface.sky, AppSurface.purple]
-    return colors[abs(subject.id.hashValue) % colors.count]
+// 返回身份色板条目而非裸 Color：调用方才能按用途取 fill / text / soft。
+// 直接拿 fill 当文字色是原代码的 AA 缺陷（green 3.77:1 / amber 3.64:1 / sky 4.10:1）。
+private func rowTint(for subject: AppSubject) -> AppColor.SubjectAccent {
+    let palette = AppColor.subjectAccents
+    return palette[abs(subject.id.hashValue) % palette.count]
 }
 
-private func rowTint(for set: AppTag) -> Color {
-    let colors = [AppSurface.accent, AppSurface.green, AppSurface.amber, AppSurface.sky, AppSurface.purple]
-    return colors[abs(set.id.hashValue) % colors.count]
+private func rowTint(for set: AppTag) -> AppColor.SubjectAccent {
+    let palette = AppColor.subjectAccents
+    return palette[abs(set.id.hashValue) % palette.count]
 }
 
 private func subjectInitial(_ subject: AppSubject, metadata: SubjectPresentation?) -> String {
@@ -1819,11 +1733,11 @@ private func subjectInitial(_ subject: AppSubject, metadata: SubjectPresentation
     return String(initial.prefix(1)).uppercased()
 }
 
-private func subjectTint(_ subject: AppSubject, metadata: SubjectPresentation?) -> Color {
+private func subjectTint(_ subject: AppSubject, metadata: SubjectPresentation?) -> AppColor.SubjectAccent {
     guard let accent = metadata?.accent, let choice = CardsAccentChoice(rawValue: accent) else {
         return rowTint(for: subject)
     }
-    return choice.color
+    return choice.palette
 }
 
 private func subjectDisplayDescription(_ subject: AppSubject, metadata: SubjectPresentation?) -> String {
@@ -1833,10 +1747,10 @@ private func subjectDisplayDescription(_ subject: AppSubject, metadata: SubjectP
     return description
 }
 
-private func setTint(_ set: AppTag, metadata: SetPresentation?) -> Color {
+private func setTint(_ set: AppTag, metadata: SetPresentation?) -> AppColor.SubjectAccent {
     switch metadata?.defaultMode {
     case SetDefaultReviewMode.test.rawValue:
-        return AppSurface.sky
+        return AppColor.subjectAccent("sky")
     default:
         return rowTint(for: set)
     }

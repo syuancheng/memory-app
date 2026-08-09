@@ -7,10 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		100000000000000000000118 /* Tokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000218 /* Tokens.swift */; };
+		100000000000000000000119 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000219 /* Components.swift */; };
 		100000000000000000000101 /* MemoryAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000201 /* MemoryAppApp.swift */; };
 		100000000000000000000102 /* MemoryModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000202 /* MemoryModels.swift */; };
 		100000000000000000000103 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000203 /* APIClient.swift */; };
-		100000000000000000000104 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000204 /* Theme.swift */; };
 		100000000000000000000105 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000205 /* HomeView.swift */; };
 		100000000000000000000106 /* SubjectPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000206 /* SubjectPickerView.swift */; };
 		100000000000000000000107 /* TagPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000207 /* TagPickerView.swift */; };
@@ -26,11 +27,12 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		100000000000000000000218 /* Tokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tokens.swift; sourceTree = "<group>"; };
+		100000000000000000000219 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		100000000000000000000200 /* MemoryApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MemoryApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000201 /* MemoryAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryAppApp.swift; sourceTree = "<group>"; };
 		100000000000000000000202 /* MemoryModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryModels.swift; sourceTree = "<group>"; };
 		100000000000000000000203 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
-		100000000000000000000204 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		100000000000000000000205 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		100000000000000000000206 /* SubjectPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubjectPickerView.swift; sourceTree = "<group>"; };
 		100000000000000000000207 /* TagPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagPickerView.swift; sourceTree = "<group>"; };
@@ -70,6 +72,7 @@
 			children = (
 				100000000000000000000201 /* MemoryAppApp.swift */,
 				100000000000000000000210 /* Info.plist */,
+				100000000000000000000408 /* DesignSystem */,
 				100000000000000000000404 /* Models */,
 				100000000000000000000405 /* Services */,
 				100000000000000000000406 /* Views */,
@@ -106,7 +109,6 @@
 		100000000000000000000406 /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				100000000000000000000204 /* Theme.swift */,
 				100000000000000000000205 /* HomeView.swift */,
 				100000000000000000000206 /* SubjectPickerView.swift */,
 				100000000000000000000207 /* TagPickerView.swift */,
@@ -127,6 +129,15 @@
 				100000000000000000000214 /* OPPOSans-Bold.ttf */,
 			);
 			path = Fonts;
+			sourceTree = "<group>";
+		};
+		100000000000000000000408 /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000218 /* Tokens.swift */,
+				100000000000000000000219 /* Components.swift */,
+			);
+			path = DesignSystem;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -200,10 +211,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				100000000000000000000118 /* Tokens.swift in Sources */,
+				100000000000000000000119 /* Components.swift in Sources */,
 				100000000000000000000101 /* MemoryAppApp.swift in Sources */,
 				100000000000000000000102 /* MemoryModels.swift in Sources */,
 				100000000000000000000103 /* APIClient.swift in Sources */,
-				100000000000000000000104 /* Theme.swift in Sources */,
 				100000000000000000000105 /* HomeView.swift in Sources */,
 				100000000000000000000106 /* SubjectPickerView.swift in Sources */,
 				100000000000000000000107 /* TagPickerView.swift in Sources */,

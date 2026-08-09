@@ -18,21 +18,13 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                AppSurface.background
-                    .ignoresSafeArea()
-
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        homeHeader
-                        learningFocus
-                        loadState
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 18)
-                    .padding(.bottom, 32)
-                }
+            AppScreen {
+                homeHeader
+                learningFocus
+                loadState
             }
+            // Tab 根屏用「样式 B · 大标题头」，本身没有导航栏内容，故隐藏原生栏。
+            // 注意：这是 Tab 根屏专属；任何 push/present 出来的屏都必须保留原生栏。
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: $showingMessages) {
@@ -55,136 +47,94 @@ struct HomeView: View {
     }
 
     private var homeHeader: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Today")
-                    .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(AppSurface.text)
-
-                Text("AI flashcards for active recall")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(AppSurface.muted)
-            }
-
-            Spacer(minLength: 16)
-
-            Button {
+        AppLargeHeader(title: "Today", subtitle: "AI flashcards for active recall") {
+            // badge 恒显，与改造前行为一致（尚无未读态数据源，不在本次视觉重构范围内）
+            AppIconButton(
+                icon: "bell",
+                style: .plain,
+                badge: true
+            ) {
                 showingMessages = true
-            } label: {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: "bell")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(AppSurface.text)
-                        .frame(width: 44, height: 44)
-                        .background(AppSurface.cardSubtle)
-                        .clipShape(Circle())
-                        .overlay(
-                            Circle()
-                                .stroke(AppSurface.line, lineWidth: 1)
-                        )
-
-                    Circle()
-                        .fill(AppSurface.coral)
-                        .frame(width: 9, height: 9)
-                        .offset(x: -7, y: 7)
-                }
             }
-            .buttonStyle(.plain)
             .accessibilityLabel("Messages")
         }
     }
 
+    /// 两张卡属于同一个「今日焦点」语义单元，用 cardGap 收紧；
+    /// 与大标题之间的间距由 AppScreen 的 xxl 统一提供（原先是硬编码 .padding(.top, 74)）。
     private var learningFocus: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: AppLayout.cardGap) {
             dueSummaryCard
             startLearningCard
         }
-        .padding(.top, 74)
     }
 
     private var dueSummaryCard: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("DUE TODAY")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AppSurface.purple)
+        AppCard {
+            HStack(alignment: .center, spacing: AppSpace.lg) {
+                VStack(alignment: .leading, spacing: AppSpace.sm) {
+                    Text("Due today")
+                        .appText(AppType.label, color: AppColor.textTertiary)
 
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("\(dueCount)")
-                        .font(.system(size: dueCount >= 100 ? 38 : 44, weight: .bold))
-                        .foregroundStyle(AppSurface.text)
-                        .monospacedDigit()
-                        .minimumScaleFactor(0.74)
+                    HStack(alignment: .firstTextBaseline, spacing: AppSpace.sm) {
+                        Text("\(dueCount)")
+                            .appText(AppType.title1)
+                            .monospacedDigit()
+                            .minimumScaleFactor(0.74)
 
-                    Text(dueCount == 1 ? "card waiting" : "cards waiting")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(AppSurface.textSecondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.82)
+                        Text(dueCount == 1 ? "card waiting" : "cards waiting")
+                            .appText(AppType.body, color: AppColor.textSecondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                    }
                 }
+
+                Spacer(minLength: AppSpace.sm)
+
+                Text("\(reviewedToday) done today")
+                    .appText(AppType.label, color: AppColor.textSecondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .padding(.horizontal, AppSpace.md)
+                    .frame(height: AppLayout.buttonHeightSmall)
+                    .background(AppColor.surfaceSunken, in: Capsule())
             }
-
-            Spacer(minLength: 8)
-
-            Text("\(reviewedToday) done today")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(AppSurface.purple)
-                .padding(.horizontal, 14)
-                .frame(height: 34)
-                .background(Color.white)
-                .clipShape(Capsule())
-                .shadow(color: AppSurface.shadow.opacity(0.06), radius: 10, x: 0, y: 5)
         }
-        .padding(.horizontal, 24)
-        .frame(maxWidth: .infinity, minHeight: 118, alignment: .leading)
-        .background(AppSurface.purpleSoft)
-        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .stroke(Color(hex: 0xEDE9FE), lineWidth: 1)
-        )
-        .shadow(color: AppSurface.shadow.opacity(0.07), radius: 14, x: 0, y: 10)
+        .accessibilityElement(children: .combine)
     }
 
     private var startLearningCard: some View {
         Button {
             showingSubjects = true
         } label: {
-            HStack(alignment: .bottom, spacing: 18) {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("START LEARNING")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(AppSurface.indigoLight)
+            AppCard(variant: .inverse, padding: AppSpace.xl) {
+                HStack(alignment: .bottom, spacing: AppSpace.lg) {
+                    VStack(alignment: .leading, spacing: AppSpace.sm) {
+                        Text("Start learning")
+                            .appText(AppType.label, color: AppColor.primaryOnInverse)
 
-                    Text("Review your\nEnglish cards")
-                        .font(.system(size: 27, weight: .bold))
-                        .foregroundStyle(.white)
-                        .lineSpacing(1)
-                        .fixedSize(horizontal: false, vertical: true)
+                        Text("Review your English cards")
+                            .appText(AppType.title2, color: AppColor.textOnInverse)
+                            .fixedSize(horizontal: false, vertical: true)
 
-                    Text("Default: due cards · short session · review mode")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(AppSurface.slateLight)
-                        .lineLimit(2)
+                        Text("Default: due cards · short session · review mode")
+                            .appText(AppType.body, color: AppColor.textOnInverseSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, AppSpace.xs)
+                    }
+
+                    Spacer(minLength: AppSpace.sm)
+
+                    Image(systemName: "arrow.right")
+                        .font(AppIcon.font(AppLayout.iconMD))
+                        .foregroundStyle(AppColor.onButtonOnInverse)
+                        .frame(width: AppLayout.avatarMD, height: AppLayout.avatarMD)
+                        .background(AppColor.buttonOnInverse, in: Circle())
                 }
-
-                Spacer(minLength: 8)
-
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(AppSurface.dark)
-                    .frame(width: 52, height: 52)
-                    .background(.white)
-                    .clipShape(Circle())
             }
-            .padding(28)
-            .frame(maxWidth: .infinity, minHeight: 194, alignment: .leading)
-            .background(AppSurface.dark)
-            .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
-            .shadow(color: AppSurface.dark.opacity(0.16), radius: 24, x: 0, y: 16)
         }
-        .buttonStyle(ScalePressStyle())
-        .accessibilityLabel("Start learning")
+        .buttonStyle(AppPressableStyle())
+        .accessibilityLabel("Start learning: review your English cards")
     }
 
     @ViewBuilder
@@ -193,19 +143,16 @@ struct HomeView: View {
             HStack {
                 Spacer()
                 ProgressView()
-                    .tint(AppSurface.accent)
+                    .tint(AppColor.primary)
                 Spacer()
             }
-            .padding(.top, 20)
         }
 
         if let errorMessage {
             Text(errorMessage)
-                .font(.system(size: 13))
-                .foregroundStyle(AppSurface.coral)
+                .appText(AppType.label, color: AppColor.dangerText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-                .padding(.top, 16)
         }
     }
 
@@ -260,8 +207,7 @@ struct CardsView: View {
 
                 if let errorMessage {
                     Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(AppSurface.coral)
+                        .appText(AppType.label, color: AppColor.dangerText)
                         .listRowSeparator(.hidden)
                 }
 
@@ -286,13 +232,13 @@ struct CardsView: View {
                         } label: {
                             Label("Edit", systemImage: "pencil")
                         }
-                        .tint(AppSurface.accent)
+                        .tint(AppColor.primary)
                     }
                 }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(AppSurface.background)
+            .background(AppColor.surfaceBase)
             .navigationTitle("Cards")
             .searchable(text: $searchText, prompt: "Search cards")
             .toolbar {
@@ -358,8 +304,8 @@ struct CardsView: View {
             }
             .disabled(true)
         } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 18, weight: .semibold))
+            Image(systemName: AppIcon.add)
+                .font(AppIcon.font(AppLayout.iconMD))
         }
         .accessibilityLabel("Create")
     }
@@ -389,64 +335,46 @@ struct CardsView: View {
 }
 
 struct AIView: View {
-    private let features: [(String, String, String, Color)] = [
-        ("AI Chat", "Ask questions while reviewing English expressions.", "message.fill", AppSurface.purple),
-        ("AI Create", "Turn notes or examples into cards.", "rectangle.stack.badge.plus", AppSurface.sky),
-        ("AI Improve", "Rewrite prompts and answers for clarity.", "wand.and.stars", AppSurface.rose),
-        ("AI Explain", "Explain grammar, phrases, and usage context.", "text.bubble.fill", AppSurface.green),
-        ("AI Split", "Break long text into reviewable cards.", "square.split.2x2.fill", AppSurface.amber)
+    // 图标一律 outline —— fill 只保留给"选中/激活"语义（见 AppIcon 约定）。
+    // 这里不再逐项配色：这些是并列的待建功能，不存在需要区分的语义，
+    // 上色只会制造五个假的强调点。统一走中性图标容器。
+    private let features: [(String, String, String)] = [
+        ("AI Chat", "Ask questions while reviewing English expressions.", "message"),
+        ("AI Create", "Turn notes or examples into cards.", "rectangle.stack.badge.plus"),
+        ("AI Improve", "Rewrite prompts and answers for clarity.", "wand.and.stars"),
+        ("AI Explain", "Explain grammar, phrases, and usage context.", "text.bubble"),
+        ("AI Split", "Break long text into reviewable cards.", "square.split.2x2")
     ]
 
     var body: some View {
         NavigationStack {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("AI")
-                            .font(.system(size: 34, weight: .bold))
-                            .foregroundStyle(AppSurface.text)
+            AppScreen {
+                AppLargeHeader(title: "AI", subtitle: "Smart English learning tools are coming here.")
 
-                        Text("Smart English learning tools are coming here.")
-                            .font(.system(size: 15))
-                            .foregroundStyle(AppSurface.muted)
-                    }
-
-                    VStack(alignment: .leading, spacing: 14) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 26, weight: .semibold))
-                            .foregroundStyle(AppSurface.rose)
-                            .frame(width: 58, height: 58)
-                            .background(AppSurface.roseSoft)
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                AppCard {
+                    VStack(alignment: .leading, spacing: AppSpace.md) {
+                        Image(systemName: "wand.and.sparkles")
+                            .font(AppIcon.font(AppLayout.iconLG))
+                            .foregroundStyle(AppColor.primaryOnSoft)
+                            .frame(width: AppLayout.avatarMD, height: AppLayout.avatarMD)
+                            .background(AppColor.primarySoft, in: AppRadius.shape(AppRadius.md))
 
                         Text("Future AI workspace")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundStyle(AppSurface.text)
+                            .appText(AppType.title2)
 
                         Text("This tab is reserved for AI-assisted learning. Real AI logic is intentionally not enabled yet.")
-                            .font(.system(size: 15))
-                            .foregroundStyle(AppSurface.muted)
-                            .lineSpacing(3)
-                    }
-                    .padding(22)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 30, style: .continuous)
-                            .stroke(AppSurface.line, lineWidth: 1)
-                    )
-                    .shadow(color: AppSurface.shadow.opacity(0.06), radius: 18, x: 0, y: 10)
-
-                    VStack(spacing: 12) {
-                        ForEach(features, id: \.0) { feature in
-                            FeatureRow(title: feature.0, subtitle: feature.1, icon: feature.2, tint: feature.3)
-                        }
+                            .appText(AppType.body, color: AppColor.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .padding(24)
+
+                VStack(spacing: AppLayout.cardGap) {
+                    ForEach(features, id: \.0) { feature in
+                        FeatureRow(title: feature.0, subtitle: feature.1, icon: feature.2)
+                    }
+                }
             }
-            .background(AppSurface.background.ignoresSafeArea())
+            // Tab 根屏 = 样式 B
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
         }
@@ -456,30 +384,17 @@ struct AIView: View {
 struct MessageCenterView: View {
     var body: some View {
         ZStack {
-            AppSurface.background
+            AppColor.surfaceBase
                 .ignoresSafeArea()
 
-            VStack(spacing: 14) {
-                Image(systemName: "bell.badge")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(AppSurface.accent)
-                    .frame(width: 72, height: 72)
-                    .background(AppSurface.accentSoft)
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-
-                Text("No messages")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(AppSurface.text)
-
-                Text("Review reminders, import results, AI task updates, sync issues, and system messages will appear here.")
-                    .font(.system(size: 15))
-                    .foregroundStyle(AppSurface.muted)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(3)
-                    .padding(.horizontal, 28)
-            }
-            .padding(24)
+            AppEmptyState(
+                icon: "bell",
+                title: "No messages",
+                message: "Review reminders, import results, AI task updates, sync issues, and system messages will appear here."
+            )
+            .padding(.horizontal, AppLayout.screenMargin)
         }
+        // 样式 A：本屏由 navigationDestination push 出来，用原生导航栏
         .navigationTitle("Messages")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
@@ -490,50 +405,43 @@ private struct CardListRow: View {
     let card: ReviewCard
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: AppSpace.sm) {
+            HStack(spacing: AppSpace.sm) {
                 Text(card.subjectName ?? "English")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AppSurface.sky)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(AppSurface.skySoft)
-                    .clipShape(Capsule())
+                    .appText(AppType.caption, color: AppColor.primaryOnSoft)
+                    .padding(.horizontal, AppSpace.sm)
+                    .padding(.vertical, AppSpace.xs)
+                    .background(AppColor.primarySoft, in: Capsule())
 
                 Text("\(card.answerTokens.count) terms")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AppSurface.muted)
+                    .appText(AppType.caption, color: AppColor.textTertiary)
 
                 Spacer()
             }
 
             Text(card.frontText)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(AppSurface.text)
+                .appText(AppType.headline)
                 .lineLimit(2)
 
             Text(card.answerText)
-                .font(.system(size: 14))
-                .foregroundStyle(AppSurface.muted)
+                .appText(AppType.body, color: AppColor.textTertiary)
                 .lineLimit(2)
 
             if !card.tags.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: AppSpace.xs) {
                         ForEach(card.tags) { tag in
                             Text(tag.name)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(AppSurface.textSecondary)
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 4)
-                                .background(AppSurface.cardSubtle)
-                                .clipShape(Capsule())
+                                .appText(AppType.caption, color: AppColor.textSecondary)
+                                .padding(.horizontal, AppSpace.sm)
+                                .padding(.vertical, AppSpace.xs)
+                                .background(AppColor.surfaceSunken, in: Capsule())
                         }
                     }
                 }
             }
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, AppSpace.md)
     }
 }
 
@@ -574,7 +482,7 @@ private struct CardEditorView: View {
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
-                            .foregroundStyle(AppSurface.coral)
+                            .appText(AppType.body, color: AppColor.dangerText)
                     }
                 }
 
@@ -600,8 +508,7 @@ private struct CardEditorView: View {
 
                     if tags.isEmpty {
                         Text("Create a set and tag on the web app first, or use an existing set with tags.")
-                            .font(.footnote)
-                            .foregroundStyle(AppSurface.muted)
+                            .appText(AppType.label, color: AppColor.textTertiary)
                     } else {
                         ForEach(tags) { tag in
                             Toggle(tag.name, isOn: tagBinding(tag.id))
@@ -611,7 +518,7 @@ private struct CardEditorView: View {
 
                 Section {
                     ForEach(phrases.indices, id: \.self) { index in
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: AppSpace.sm) {
                             TextField("Phrase", text: phraseTextBinding(index))
                             TextField("Note", text: phraseNoteBinding(index))
                         }
@@ -699,7 +606,7 @@ private struct CardEditorView: View {
         let payload = CardPayload(
             subjectID: selectedSubjectID,
             tagIDs: Array(selectedTagIDs),
-            cardType: card?.cardType ?? "speaking_expression",
+            cardType: card?.cardType ?? "sentence",
             direction: card?.direction ?? "zh_to_en",
             frontText: frontText,
             answerText: answerText,
@@ -767,7 +674,7 @@ private struct CreateSetView: View {
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
-                            .foregroundStyle(AppSurface.coral)
+                            .appText(AppType.body, color: AppColor.dangerText)
                     }
                 }
 
@@ -817,73 +724,29 @@ private struct FeatureRow: View {
     let title: String
     let subtitle: String
     let icon: String
-    let tint: Color
-
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: AppSpace.md) {
             Image(systemName: icon)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 42, height: 42)
-                .background(tint.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .font(AppIcon.font(AppLayout.iconMD))
+                .foregroundStyle(AppColor.iconDefault)
+                .frame(width: AppLayout.avatarSM, height: AppLayout.avatarSM)
+                .background(AppColor.iconContainerBase, in: AppRadius.shape(AppRadius.sm))
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: AppSpace.xs / 2) {
                 Text(title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(AppSurface.text)
+                    .appText(AppType.headline)
 
                 Text(subtitle)
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppSurface.muted)
+                    .appText(AppType.body, color: AppColor.textTertiary)
                     .lineLimit(2)
             }
 
-            Spacer()
+            Spacer(minLength: AppSpace.sm)
         }
-        .padding(16)
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(AppSurface.line, lineWidth: 1)
-        )
+        .padding(AppLayout.cardPadding)
+        .appSurface(.card)
     }
 }
 
-private struct ScalePressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.975 : 1)
-            .brightness(configuration.isPressed ? -0.02 : 0)
-            .animation(.spring(response: 0.24, dampingFraction: 0.86), value: configuration.isPressed)
-    }
-}
-
-enum AppSurface {
-    static let background = Color(hex: 0xFBFBFC)
-    static let cardSubtle = Color(hex: 0xF4F5F7)
-    static let grouped = Color(hex: 0xF1F2F5)
-    static let floating = Color(hex: 0xFFFFFF)
-    static let text = Color(hex: 0x111827)
-    static let textSecondary = Color(hex: 0x374151)
-    static let muted = Color(hex: 0x6B7280)
-    static let line = Color(hex: 0xE7E8EC)
-    static let shadow = Color(hex: 0x171C2E)
-    static let dark = Color(hex: 0x111827)
-    static let accent = Color(hex: 0x4F46E5)
-    static let accentSoft = Color(hex: 0xEEF2FF)
-    static let iconAccent = Color(hex: 0x3F6D84)
-    static let iconSoft = Color(hex: 0xE9EEF2)
-    static let purple = Color(hex: 0x7C3AED)
-    static let purpleSoft = Color(hex: 0xF7F3FF)
-    static let indigoLight = Color(hex: 0xA5B4FC)
-    static let slateLight = Color(hex: 0xCBD5E1)
-    static let coral = Color(hex: 0xFF6B6B)
-    static let sky = Color(hex: 0x0284C7)
-    static let skySoft = Color(hex: 0xE0F2FE)
-    static let rose = Color(hex: 0xE11D48)
-    static let roseSoft = Color(hex: 0xFFF1F2)
-    static let green = Color(hex: 0x059669)
-    static let amber = Color(hex: 0xB7791F)
-}
+// AppSurface 已迁至 DesignSystem/LegacyBridge.swift（兼容层，指向 AppColor）。
+// ScalePressStyle 已由 AppPressableStyle 取代（Components.swift）。

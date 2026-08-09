@@ -45,13 +45,12 @@ struct SubjectPickerView: View {
                 }
             } else {
                 NavigationStack {
-                    StudySelectionPage(title: mode.title, onBack: dismiss.callAsFunction) {
+                    // 本屏由 .fullScreenCover 呈现 → dismiss 用 .close
+                    StudySelectionPage(title: mode.title, dismissStyle: .close, onBack: dismiss.callAsFunction) {
                         Text("Choose a subject")
-                            .font(.system(size: 28, weight: .bold))
-                            .foregroundStyle(AppSurface.text)
-                            .padding(.bottom, 18)
+                            .appText(AppType.title2)
 
-                        LazyVStack(spacing: 12) {
+                        LazyVStack(spacing: AppLayout.cardGap) {
                             ForEach(subjects) { subject in
                                 Button {
                                     selectedSubject = subject
@@ -81,64 +80,19 @@ struct SubjectPickerView: View {
 
 struct StudySelectionPage<Content: View>: View {
     let title: String
+    /// present 出来的屏用 .close（xmark）；push 出来的屏用 .back（系统箭头）
+    var dismissStyle: AppNavDismiss = .back
     let onBack: () -> Void
     @ViewBuilder let content: Content
 
+    // 样式 A：这两屏都是可返回的，用原生导航栏。
+    // 改造前是「自绘圆形返回 + 20pt 居中标题 + 隐藏原生栏」——第三套导航的最后一处。
     var body: some View {
-        ZStack {
-            AppSurface.background
-                .ignoresSafeArea()
-
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    StudySelectionHeader(title: title, onBack: onBack)
-                        .padding(.bottom, 26)
-
-                    content
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 18)
-                .padding(.bottom, 32)
-            }
+        AppScreen {
+            content
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .navigationBar)
+        .appNavBar(title, dismiss: dismissStyle, onDismiss: onBack)
         .toolbar(.hidden, for: .tabBar)
-    }
-}
-
-struct StudySelectionHeader: View {
-    let title: String
-    let onBack: () -> Void
-
-    var body: some View {
-        ZStack {
-            Text(title)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(AppSurface.text)
-
-            HStack {
-                Button {
-                    onBack()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(AppSurface.text)
-                        .frame(width: 44, height: 44)
-                        .background(AppSurface.cardSubtle)
-                        .clipShape(Circle())
-                        .overlay(
-                            Circle()
-                                .stroke(AppSurface.line, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Back")
-
-                Spacer()
-            }
-        }
-        .frame(height: 44)
     }
 }
 
@@ -149,71 +103,54 @@ struct StudySelectionRow: View {
     let isSelected: Bool
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: AppSpace.md) {
             if isSelected {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
-                    .background(AppSurface.accent)
-                    .clipShape(Circle())
+                Image(systemName: AppIcon.confirm)
+                    .font(AppIcon.font(AppLayout.iconSM))
+                    .foregroundStyle(AppColor.onPrimary)
+                    .frame(width: AppLayout.avatarSM, height: AppLayout.avatarSM)
+                    .background(AppColor.primary, in: Circle())
             }
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: AppSpace.xs / 2) {
                 Text(title)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(AppSurface.text)
+                    .appText(AppType.headline)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
 
                 Text(subtitle)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(AppSurface.muted)
+                    .appText(AppType.body, color: AppColor.textTertiary)
+                    .lineLimit(1)
             }
 
-            Spacer(minLength: 12)
+            Spacer(minLength: AppSpace.md)
 
             Text("\(count)")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(isSelected ? AppSurface.accent : AppSurface.textSecondary)
+                .appText(AppType.title2, color: isSelected ? AppColor.primaryOnSoft : AppColor.textSecondary)
                 .monospacedDigit()
                 .minimumScaleFactor(0.78)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
-        .background(isSelected ? AppSurface.accentSoft : AppSurface.cardSubtle)
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .stroke(isSelected ? AppSurface.accent.opacity(0.34) : AppSurface.line, lineWidth: 1)
-        )
-        .shadow(color: AppSurface.shadow.opacity(isSelected ? 0.08 : 0.045), radius: 16, x: 0, y: 8)
-        .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .padding(.horizontal, AppLayout.rowPaddingH)
+        .padding(.vertical, AppLayout.rowPaddingV)
+        .frame(maxWidth: .infinity, minHeight: AppLayout.rowMinHeight, alignment: .leading)
+        .background(isSelected ? AppColor.primarySoft : AppColor.surface, in: AppRadius.shape(AppRadius.lg))
+        .overlay {
+            AppRadius.shape(AppRadius.lg).strokeBorder(
+                isSelected ? AppColor.primary : AppColor.border,
+                lineWidth: AppLayout.hairline
+            )
+        }
+        .contentShape(AppRadius.shape(AppRadius.lg))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
-struct StudyPrimaryActionButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 17, weight: .bold))
-            .foregroundStyle(.white.opacity(isEnabled ? 1 : 0.62))
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .background(AppSurface.dark.opacity(isEnabled ? (configuration.isPressed ? 0.86 : 1) : 0.32))
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .shadow(color: AppSurface.dark.opacity(isEnabled ? 0.14 : 0), radius: 18, x: 0, y: 10)
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
-            .animation(.spring(response: 0.24, dampingFraction: 0.86), value: configuration.isPressed)
-    }
-}
-
+/// 行卡按压反馈。统一走 AppPressableStyle 的缩放曲线，不再叠 .brightness。
 struct StudySelectionPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
-            .brightness(configuration.isPressed ? -0.018 : 0)
-            .animation(.spring(response: 0.24, dampingFraction: 0.86), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? AppMotion.pressScale : 1)
+            .animation(AppMotion.instant, value: configuration.isPressed)
     }
 }

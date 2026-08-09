@@ -11,7 +11,15 @@ enum APIError: LocalizedError {
         case .badURL:
             return "Invalid API URL"
         case .badStatus(let status, let message):
-            return "API error \(status): \(message)"
+            // 后端错误体是 {"error":"..."}，直接把整段 JSON 甩给用户没有意义。
+            // 能解析出 error 字段就只显示那句话，解析不了才回落到原始文本。
+            if let data = message.data(using: .utf8),
+               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let reason = object["error"] as? String,
+               !reason.isEmpty {
+                return reason
+            }
+            return message.isEmpty ? "Request failed (\(status))" : message
         case .unauthorized:
             return "Please sign in again."
         }
@@ -85,6 +93,20 @@ final class APIClient {
 
     func deleteSubject(subjectID: String) async throws {
         let _: ActionStatusResponse = try await request(path: "/subjects/\(subjectID)", method: "DELETE")
+    }
+
+    // MARK: MCP 个人访问令牌
+
+    func listMCPTokens() async throws -> [MCPToken] {
+        try await request(path: "/mcp/tokens")
+    }
+
+    func createMCPToken(name: String) async throws -> MCPToken {
+        try await request(path: "/mcp/tokens", method: "POST", body: NamePayload(name: name))
+    }
+
+    func revokeMCPToken(tokenID: String) async throws {
+        let _: ActionStatusResponse = try await request(path: "/mcp/tokens/\(tokenID)", method: "DELETE")
     }
 
     func getMeSummary() async throws -> MeSummary {

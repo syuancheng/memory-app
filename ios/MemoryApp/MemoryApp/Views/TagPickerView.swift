@@ -44,22 +44,21 @@ struct TagPickerView: View {
     }
 
     var body: some View {
+        // 本屏由 navigationDestination push 出来 → dismiss 用 .back（系统箭头）
         StudySelectionPage(title: subject.name, onBack: dismiss.callAsFunction) {
             Text("Choose what to review")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundStyle(AppSurface.text)
-                .padding(.bottom, 18)
+                .appText(AppType.title2)
 
             if isLoading {
                 HStack {
                     Spacer()
                     ProgressView()
-                        .tint(AppSurface.accent)
+                        .tint(AppColor.primary)
                     Spacer()
                 }
-                .frame(minHeight: 160)
+                .frame(minHeight: AppSpace.giant * 2)
             } else {
-                LazyVStack(spacing: 12) {
+                LazyVStack(spacing: AppLayout.cardGap) {
                     Button {
                         selection = .all
                     } label: {
@@ -90,25 +89,32 @@ struct TagPickerView: View {
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppSurface.coral)
+                    .appText(AppType.label, color: AppColor.dangerText)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 14)
             }
 
             if !isLoading && errorMessage == nil && tags.isEmpty {
-                Text("No tags in this subject yet.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppSurface.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 14)
+                AppEmptyState(
+                    title: "No sets yet",
+                    message: "This subject has no sets, so \"All\" covers everything.",
+                    density: .compact
+                )
             }
 
-            Spacer(minLength: 24)
-                .frame(height: 96)
+            // 为底部吸附的主操作条让位
+            Spacer(minLength: AppSpace.giant * 2)
         }
         .safeAreaInset(edge: .bottom) {
-            Button(primaryTitle) {
+            // 改造前禁用态是 dark.opacity(0.32) 底 + white.opacity(0.62) 字（约 1.9:1）。
+            // 现在走 AppButton 的 disabledFill + disabledText（6.92:1）。
+            AppButton(
+                title: primaryTitle,
+                variant: .primary,
+                size: .large,
+                fullWidth: true,
+                isEnabled: canStart
+            ) {
                 onStart(
                     StudySessionConfig(
                         mode: mode,
@@ -117,15 +123,15 @@ struct TagPickerView: View {
                     )
                 )
             }
-            .disabled(!canStart)
-            .buttonStyle(StudyPrimaryActionButtonStyle())
-            .padding(.horizontal, 24)
-            .padding(.top, 12)
-            .padding(.bottom, 10)
-            .background(
-                AppSurface.background
-                    .shadow(color: AppSurface.background, radius: 18, x: 0, y: -8)
-            )
+            .padding(.horizontal, AppLayout.screenMargin)
+            .padding(.top, AppSpace.md)
+            .padding(.bottom, AppSpace.sm)
+            .background(AppColor.surfaceBase)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(AppColor.separator)
+                    .frame(height: AppLayout.separatorHeight)
+            }
         }
         .task {
             await loadTags()

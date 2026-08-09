@@ -10,105 +10,108 @@ struct AuthView: View {
     @State private var message: String?
     @State private var errorMessage: String?
 
+    // 与后端 auth.SendCooldown / auth.CodeTTL 对应。
+    // 改造前没有倒计时，用户只能靠点一下撞出 400 才知道要等 —— 用报错代替提示。
+    private static let resendCooldown: TimeInterval = 60
+
+    @State private var lastSentAt: Date?
+    @State private var now = Date()
+    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    /// 距离可以重发还剩几秒；0 表示现在就能发
+    private var resendRemaining: Int {
+        guard let lastSentAt else { return 0 }
+        let elapsed = now.timeIntervalSince(lastSentAt)
+        return max(0, Int((Self.resendCooldown - elapsed).rounded(.up)))
+    }
+
+
     var body: some View {
         ZStack {
-            AppSurface.background
+            AppColor.surfaceBase
                 .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 28) {
-                Spacer(minLength: 24)
+            VStack(alignment: .leading, spacing: AppSpace.xxxl) {
+                Spacer(minLength: AppSpace.xxl)
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: AppSpace.sm) {
+                    // 登录页是唯一没有其他 display 级元素的屏，品牌名占用 display。
                     Text("Cardly")
-                        .font(.system(size: 52, weight: .bold))
-                        .foregroundStyle(AppSurface.text)
+                        .appText(AppType.display)
 
                     Text("AI flashcards for active recall")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(AppSurface.muted)
+                        .appText(AppType.body, color: AppColor.textTertiary)
                 }
 
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Email")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(AppSurface.muted)
+                AppCard(padding: AppSpace.xl) {
+                    VStack(alignment: .leading, spacing: AppSpace.lg) {
+                        AppTextField(
+                            label: "Email",
+                            text: $email,
+                            placeholder: ""
+                        )
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .textContentType(.emailAddress)
 
-                        TextField("you@example.com", text: $email)
-                            .keyboardType(.emailAddress)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .textContentType(.emailAddress)
-                            .authFieldStyle()
-                    }
-
-                    if codeSent {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Verification code")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(AppSurface.muted)
-
-                            TextField("6-digit code", text: $code)
-                                .keyboardType(.numberPad)
-                                .textContentType(.oneTimeCode)
-                                .authFieldStyle()
+                        if codeSent {
+                            AppTextField(
+                                label: "Verification code",
+                                text: $code,
+                                placeholder: "6-digit code"
+                            )
+                            .keyboardType(.numberPad)
+                            .textContentType(.oneTimeCode)
                         }
-                    }
 
-                    Button {
-                        Task { await submit() }
-                    } label: {
-                        HStack {
-                            if isSubmitting {
-                                ProgressView()
-                                    .tint(.white)
+                        // 主操作 = primary 实心；禁用换实色而非 .opacity(0.55)；
+                        // 提交中走 loading 态而非在 label 里塞 ProgressView（尺寸不再跳动）。
+                        AppButton(
+                            title: codeSent ? "Sign in" : "Send code",
+                            variant: .primary,
+                            size: .large,
+                            fullWidth: true,
+                            isEnabled: !isDisabled,
+                            isLoading: isSubmitting
+                        ) {
+                            Task { await submit() }
+                        }
+
+                        if codeSent {
+                            AppButton(
+                                title: resendRemaining > 0
+                                    ? "Send a new code in \(resendRemaining)s"
+                                    : "Send a new code",
+                                variant: .ghost,
+                                size: .medium,
+                                fullWidth: true,
+                                isEnabled: !isSubmitting && resendRemaining == 0
+                            ) {
+                                Task { await sendCode() }
                             }
-                            Text(codeSent ? "Sign in" : "Send code")
                         }
-                    }
-                    .buttonStyle(AuthPrimaryButtonStyle())
-                    .disabled(isDisabled)
-                    .opacity(isDisabled ? 0.55 : 1)
 
-                    if codeSent {
-                        Button {
-                            Task { await sendCode() }
-                        } label: {
-                            Text("Send a new code")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(AppSurface.accent)
-                                .frame(maxWidth: .infinity)
+                        if let message {
+                            Text(message)
+                                .appText(AppType.label, color: AppColor.textTertiary)
+                                .frame(maxWidth: .infinity, alignment: .center)
                         }
-                        .disabled(isSubmitting)
-                    }
 
-                    if let message {
-                        Text(message)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(AppSurface.muted)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    }
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(AppSurface.coral)
-                            .frame(maxWidth: .infinity, alignment: .center)
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .appText(AppType.label, color: AppColor.dangerText)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        }
                     }
                 }
-                .padding(22)
-                .background(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(AppSurface.line, lineWidth: 1)
-                )
-                .shadow(color: AppSurface.shadow.opacity(0.08), radius: 28, x: 0, y: 16)
 
-                Spacer(minLength: 60)
+                Spacer(minLength: AppSpace.giant)
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, AppLayout.screenMargin)
         }
+        .onReceive(ticker) { now = $0 }
     }
 
     private var isDisabled: Bool {
@@ -132,7 +135,9 @@ struct AuthView: View {
         do {
             try await session.requestLoginCode(email: email)
             codeSent = true
-            message = "Code sent. Check your email."
+            lastSentAt = Date()
+            now = Date()
+            message = "Code sent." 
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -149,32 +154,5 @@ struct AuthView: View {
             errorMessage = error.localizedDescription
         }
         isSubmitting = false
-    }
-}
-
-private extension View {
-    func authFieldStyle() -> some View {
-        self
-            .font(.system(size: 16, weight: .regular))
-            .padding(.horizontal, 14)
-            .frame(minHeight: 54)
-            .background(AppSurface.cardSubtle)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(AppSurface.line, lineWidth: 1)
-            )
-    }
-}
-
-private struct AuthPrimaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 17, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .background(AppSurface.dark)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }
 }

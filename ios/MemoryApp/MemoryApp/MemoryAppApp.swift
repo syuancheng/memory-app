@@ -4,6 +4,12 @@ import SwiftUI
 struct MemoryAppApp: App {
     @StateObject private var session = AuthSessionStore()
 
+    init() {
+        // NavBar 与 TabBar 的外观在此统一注入（Components.swift）。
+        // 各屏不再各自 .toolbar(.hidden) + 自绘导航 —— 收敛 #1 的前提。
+        AppAppearance.configure()
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
@@ -23,68 +29,56 @@ struct MemoryAppApp: App {
     }
 }
 
+private enum AppTab: Hashable {
+    case home, cards, ai, me
+}
+
 struct AppShellView: View {
-    init() {
-        let appearance = UITabBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = UIColor(AppSurface.floating)
-        appearance.shadowColor = UIColor(AppSurface.line)
-
-        appearance.stackedLayoutAppearance.normal.iconColor = UIColor(AppSurface.muted)
-        appearance.stackedLayoutAppearance.normal.titleTextAttributes = [
-            .foregroundColor: UIColor(AppSurface.muted)
-        ]
-        appearance.stackedLayoutAppearance.selected.iconColor = UIColor(AppSurface.accent)
-        appearance.stackedLayoutAppearance.selected.titleTextAttributes = [
-            .foregroundColor: UIColor(AppSurface.accent)
-        ]
-
-        UITabBar.appearance().standardAppearance = appearance
-        UITabBar.appearance().scrollEdgeAppearance = appearance
-        UITabBar.appearance().isTranslucent = false
-    }
+    @State private var selection: AppTab = .home
 
     var body: some View {
-        TabView {
+        TabView(selection: $selection) {
             HomeView()
+                .tag(AppTab.home)
                 .tabItem {
-                    Label("Home", systemImage: "house.fill")
+                    Label("Home", systemImage: AppIcon.tabHome)
                 }
 
             CardsHierarchyView()
+                .tag(AppTab.cards)
                 .tabItem {
-                    Label("Cards", systemImage: "rectangle.stack.fill")
+                    Label("Cards", systemImage: AppIcon.tabCards)
                 }
 
             AIView()
+                .tag(AppTab.ai)
                 .tabItem {
-                    Label("AI", systemImage: "sparkles")
+                    Label("AI", systemImage: AppIcon.tabAI)
                 }
 
             MeView()
+                .tag(AppTab.me)
                 .tabItem {
-                    Label("Me", systemImage: "person.crop.circle")
+                    Label("Me", systemImage: AppIcon.tabMe)
                 }
         }
-        .tint(AppSurface.accent)
-        .toolbarBackground(AppSurface.floating, for: .tabBar)
-        .toolbarBackground(.visible, for: .tabBar)
+        .tint(AppColor.primary)
+        .background(AppColor.surfaceBase.ignoresSafeArea())
     }
 }
 
 private struct LaunchLoadingView: View {
     var body: some View {
         ZStack {
-            AppSurface.background
+            AppColor.surfaceBase
                 .ignoresSafeArea()
 
-            VStack(spacing: 14) {
+            VStack(spacing: AppSpace.md) {
                 Text("Cardly")
-                    .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(AppSurface.text)
+                    .appText(AppType.display)
 
                 ProgressView()
-                    .tint(AppSurface.accent)
+                    .tint(AppColor.primary)
             }
         }
     }
