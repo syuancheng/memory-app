@@ -41,6 +41,11 @@ func NewServer(pool *pgxpool.Pool, authService *auth.Service) http.Handler {
 
 			r.Get("/me/summary", server.getMeSummary)
 
+			// MCP 个人访问令牌：把 MCP 调用绑定到真实账号
+			r.Get("/mcp/tokens", server.listMCPTokens)
+			r.Post("/mcp/tokens", server.createMCPToken)
+			r.Delete("/mcp/tokens/{tokenID}", server.revokeMCPToken)
+
 			r.Get("/subjects", server.listSubjects)
 			r.Post("/subjects", server.createSubject)
 			r.Put("/subjects/{subjectID}", server.updateSubject)

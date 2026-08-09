@@ -58,6 +58,7 @@ func main() {
 		AllowedOrigins: cfg.AllowedOrigins,
 		JSONResponse:   cfg.JSONResponse,
 		OAuthServer:    oauthServer,
+		PersonalTokens: authService,
 	})
 
 	mux := http.NewServeMux()

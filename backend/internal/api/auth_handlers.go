@@ -4,6 +4,9 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	authpkg "memory-app/backend/internal/auth"
 )
@@ -171,4 +174,70 @@ func writeAuthError(w http.ResponseWriter, err error) {
 		status = http.StatusUnauthorized
 	}
 	writeError(w, status, message)
+}
+
+
+// ===== MCP 个人访问令牌 =====
+//
+// MCP 的静态 MEMORY_MCP_TOKEN 一律映射到 demo 用户，卡片无法落到真实账号。
+// 这组接口让登录用户签发绑定自己的令牌，MCP server 凭它解析出真实 userID。
+
+type mcpTokenResponse struct {
+	ID         string  `json:"id"`
+	Name       string  `json:"name"`
+	CreatedAt  string  `json:"created_at"`
+	LastUsedAt *string `json:"last_used_at"`
+	// Token 仅在创建时返回一次，之后不可恢复
+	Token string `json:"token,omitempty"`
+}
+
+type createMCPTokenRequest struct {
+	Name string `json:"name"`
+}
+
+func toMCPTokenResponse(t authpkg.MCPToken, plaintext string) mcpTokenResponse {
+	var lastUsed *string
+	if t.LastUsedAt != nil {
+		formatted := t.LastUsedAt.UTC().Format(time.RFC3339)
+		lastUsed = &formatted
+	}
+	return mcpTokenResponse{
+		ID:         t.ID,
+		Name:       t.Name,
+		CreatedAt:  t.CreatedAt.UTC().Format(time.RFC3339),
+		LastUsedAt: lastUsed,
+		Token:      plaintext,
+	}
+}
+
+func (s *Server) listMCPTokens(w http.ResponseWriter, r *http.Request) {
+	tokens, err := s.auth.ListMCPTokens(r.Context(), currentUserID(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := make([]mcpTokenResponse, 0, len(tokens))
+	for _, t := range tokens {
+		out = append(out, toMCPTokenResponse(t, ""))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) createMCPToken(w http.ResponseWriter, r *http.Request) {
+	var req createMCPTokenRequest
+	_ = readJSON(r, &req)
+	plaintext, meta, err := s.auth.CreateMCPToken(r.Context(), currentUserID(r), req.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, toMCPTokenResponse(meta, plaintext))
+}
+
+func (s *Server) revokeMCPToken(w http.ResponseWriter, r *http.Request) {
+	if err := s.auth.RevokeMCPToken(r.Context(), currentUserID(r), chi.URLParam(r, "tokenID")); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }

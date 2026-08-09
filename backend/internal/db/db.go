@@ -260,7 +260,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		if err != nil {
 			return err
 		}
-		tokenJSON, err := json.Marshal(service.TokenizeAnswer(card.AnswerText))
+		tokenJSON, err := json.Marshal(service.TokenizeAnswer(card.AnswerText, service.DirectionZhToEn))
 		if err != nil {
 			return err
 		}
@@ -270,7 +270,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 				id, user_id, subject_id, card_type, direction, front_text, answer_text,
 				grammar_phrases, answer_tokens, deleted_at, updated_at
 			) VALUES (
-				$1, $2, $3, 'speaking_expression', 'zh_to_en', $4, $5,
+				$1, $2, $3, 'sentence', 'zh_to_en', $4, $5,
 				$6::jsonb, $7::jsonb, NULL, now()
 			)
 			ON CONFLICT (id) DO UPDATE
@@ -379,7 +379,7 @@ CREATE TABLE IF NOT EXISTS cards (
   id UUID PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id),
   subject_id UUID NOT NULL REFERENCES subjects(id),
-  card_type TEXT NOT NULL DEFAULT 'speaking_expression',
+  card_type TEXT NOT NULL DEFAULT 'sentence',
   direction TEXT NOT NULL DEFAULT 'zh_to_en',
   front_text TEXT NOT NULL,
   answer_text TEXT NOT NULL,
@@ -440,6 +440,18 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
   expires_at TIMESTAMPTZ NOT NULL,
   revoked_at TIMESTAMPTZ
 );
+
+CREATE TABLE IF NOT EXISTS mcp_tokens (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id),
+  token_hash TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS mcp_tokens_user_idx ON mcp_tokens (user_id) WHERE revoked_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS account_connections (
   id UUID PRIMARY KEY,

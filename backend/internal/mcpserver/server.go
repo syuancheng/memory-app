@@ -28,6 +28,14 @@ type ServerConfig struct {
 	AllowedOrigins []string
 	JSONResponse   bool
 	OAuthServer    *OAuthServer
+	// PersonalTokens 用个人访问令牌换取真实 userID。
+	// 没有它，MCP 只能靠静态 token 落到 demo 账号。
+	PersonalTokens PersonalTokenResolver
+}
+
+// PersonalTokenResolver 由 auth.Service 实现。
+type PersonalTokenResolver interface {
+	UserIDForMCPToken(ctx context.Context, token string) (string, bool)
 }
 
 func NewHTTPHandler(pool *pgxpool.Pool, cfg ServerConfig) http.Handler {
@@ -35,7 +43,7 @@ func NewHTTPHandler(pool *pgxpool.Pool, cfg ServerConfig) http.Handler {
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return server
 	}, &mcp.StreamableHTTPOptions{JSONResponse: cfg.JSONResponse})
-	return withHostValidation(cfg.AllowedHosts, withCORS(cfg.AllowedOrigins, withAuth(cfg.AuthToken, cfg.OAuthServer, handler)))
+	return withHostValidation(cfg.AllowedHosts, withCORS(cfg.AllowedOrigins, withAuth(cfg.AuthToken, cfg.OAuthServer, cfg.PersonalTokens, handler)))
 }
 
 func NewServer(pool *pgxpool.Pool) *mcp.Server {
@@ -157,8 +165,8 @@ type AddCardInput struct {
 	FrontText      string          `json:"front_text" jsonschema:"front prompt, usually Chinese"`
 	AnswerText     string          `json:"answer_text" jsonschema:"English answer sentence"`
 	GrammarPhrases []GrammarPhrase `json:"grammar_phrases,omitempty" jsonschema:"phrase, grammar, or vocabulary hints"`
-	CardType       string          `json:"card_type,omitempty" jsonschema:"card type: speaking_expression, grammar, or sentence"`
-	Direction      string          `json:"direction,omitempty" jsonschema:"card direction; defaults to zh_to_en"`
+	CardType       string          `json:"card_type,omitempty" jsonschema:"card type: word or sentence; defaults to sentence"`
+	Direction      string          `json:"direction,omitempty" jsonschema:"ignored; direction is derived from front_text"`
 }
 
 type GrammarPhrase struct {
@@ -354,12 +362,8 @@ func (t *Tools) createCard(ctx context.Context, userID string, input AddCardInpu
 	if input.AnswerText == "" {
 		return model.Card{}, errors.New("answer_text is required")
 	}
-	if input.CardType == "" {
-		input.CardType = "speaking_expression"
-	}
-	if input.Direction == "" {
-		input.Direction = "zh_to_en"
-	}
+	input.CardType = service.NormalizeCardType(input.CardType)
+	input.Direction = service.DetectDirection(input.FrontText)
 
 	cardID := uuid.NewString()
 	grammarPhrases := make([]model.GrammarPhrase, 0, len(input.GrammarPhrases))
@@ -378,7 +382,7 @@ func (t *Tools) createCard(ctx context.Context, userID string, input AddCardInpu
 	if err != nil {
 		return model.Card{}, err
 	}
-	tokensJSON, err := model.TokensJSON(service.TokenizeAnswer(input.AnswerText))
+	tokensJSON, err := model.TokensJSON(service.TokenizeAnswer(input.AnswerText, input.Direction))
 	if err != nil {
 		return model.Card{}, err
 	}
@@ -524,13 +528,29 @@ func (t *Tools) loadCardTags(ctx context.Context, userID string, cardID string) 
 	return tags, rows.Err()
 }
 
-func withAuth(token string, oauthServer *OAuthServer, next http.Handler) http.Handler {
-	if token == "" && oauthServer == nil {
+func withAuth(token string, oauthServer *OAuthServer, personal PersonalTokenResolver, next http.Handler) http.Handler {
+	if token == "" && oauthServer == nil && personal == nil {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 		headerToken := strings.TrimSpace(r.Header.Get("X-Memory-Mcp-Token"))
+
+		// 个人访问令牌优先：它能解析出真实 userID，是唯一能把卡片写进
+		// 自己账号的方式。静态 MEMORY_MCP_TOKEN 永远落在 demo 用户上。
+		if personal != nil {
+			for _, candidate := range []string{bearer, headerToken} {
+				if candidate == "" {
+					continue
+				}
+				if userID, ok := personal.UserIDForMCPToken(r.Context(), candidate); ok {
+					ctx := context.WithValue(r.Context(), mcpUserIDKey{}, userID)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+		}
+
 		if token != "" && (bearer == token || headerToken == token) {
 			ctx := context.WithValue(r.Context(), mcpUserIDKey{}, db.DemoUserID)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -543,7 +563,7 @@ func withAuth(token string, oauthServer *OAuthServer, next http.Handler) http.Ha
 				return
 			}
 		}
-		if token == "" && oauthServer == nil {
+		if token == "" && oauthServer == nil && personal == nil {
 			ctx := context.WithValue(r.Context(), mcpUserIDKey{}, db.DemoUserID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
