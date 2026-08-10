@@ -35,11 +35,16 @@ func NewServer(pool *pgxpool.Pool, authService *auth.Service) http.Handler {
 		r.Post("/auth/request-code", server.requestAuthCode)
 		r.Post("/auth/verify-code", server.verifyAuthCode)
 		r.Post("/auth/apple", server.signInWithApple)
+		r.Post("/auth/login-password", server.loginWithPassword)
+		r.Post("/auth/password/reset-code", server.requestPasswordResetCode)
+		r.Post("/auth/password/reset", server.resetPassword)
 
 		r.Group(func(r chi.Router) {
 			r.Use(server.requireAuth)
 			r.Get("/auth/me", server.getCurrentUser)
 			r.Post("/auth/logout", server.logout)
+			r.Post("/auth/password", server.setPassword)
+			r.Patch("/account", server.updateAccount)
 			r.Post("/account/delete-code", server.requestDeleteAccountCode)
 			r.Delete("/account", server.deleteAccount)
 

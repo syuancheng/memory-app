@@ -31,6 +31,12 @@ type appleSignInRequest struct {
 type authResponse struct {
 	User         authUserResponse `json:"user"`
 	SessionToken string           `json:"session_token,omitempty"`
+	// IsNewUser 表示本次验证码登录顺带创建了账号。客户端据此引导设置密码。
+	// 这是判断「邮箱是否已注册」的唯一途径，且必须先持有验证码，
+	// 因此不构成账号枚举。
+	IsNewUser bool `json:"is_new_user"`
+	// HasPassword 决定客户端是否展示「用密码登录」入口。
+	HasPassword bool `json:"has_password"`
 }
 
 type authUserResponse struct {
@@ -59,14 +65,21 @@ func (s *Server) verifyAuthCode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	user, token, err := s.auth.VerifyLoginCode(r.Context(), req.Email, req.Code)
+	user, token, isNew, err := s.auth.VerifyLoginCode(r.Context(), req.Email, req.Code)
 	if err != nil {
 		writeAuthError(w, err)
+		return
+	}
+	hasPassword, err := s.auth.HasPassword(r.Context(), user.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, authResponse{
 		User:         toAuthUserResponse(user),
 		SessionToken: token,
+		IsNewUser:    isNew,
+		HasPassword:  hasPassword,
 	})
 }
 
@@ -176,7 +189,6 @@ func writeAuthError(w http.ResponseWriter, err error) {
 	writeError(w, status, message)
 }
 
-
 // ===== MCP 个人访问令牌 =====
 //
 // MCP 的静态 MEMORY_MCP_TOKEN 一律映射到 demo 用户，卡片无法落到真实账号。
@@ -240,4 +252,97 @@ func (s *Server) revokeMCPToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+}
+
+// ===== 密码登录与账号资料 =====
+
+type passwordLoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type setPasswordRequest struct {
+	Password string `json:"password"`
+}
+
+type resetPasswordRequest struct {
+	Email    string `json:"email"`
+	Code     string `json:"code"`
+	Password string `json:"password"`
+}
+
+type updateAccountRequest struct {
+	DisplayName string `json:"display_name"`
+}
+
+func (s *Server) loginWithPassword(w http.ResponseWriter, r *http.Request) {
+	var req passwordLoginRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	user, token, err := s.auth.LoginWithPassword(r.Context(), req.Email, req.Password)
+	if err != nil {
+		writeAuthError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, authResponse{
+		User:         toAuthUserResponse(user),
+		SessionToken: token,
+		HasPassword:  true,
+	})
+}
+
+func (s *Server) setPassword(w http.ResponseWriter, r *http.Request) {
+	var req setPasswordRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if err := s.auth.SetPassword(r.Context(), currentUserID(r), req.Password); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (s *Server) requestPasswordResetCode(w http.ResponseWriter, r *http.Request) {
+	var req requestCodeRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	// 邮箱不存在时 RequestCode 静默成功，避免账号枚举。
+	if err := s.auth.RequestEmailCode(r.Context(), req.Email, authpkg.PurposePasswordReset); err != nil {
+		writeAuthError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
+}
+
+func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) {
+	var req resetPasswordRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if err := s.auth.ResetPassword(r.Context(), req.Email, req.Code, req.Password); err != nil {
+		writeAuthError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
+	var req updateAccountRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	user, err := s.auth.UpdateDisplayName(r.Context(), currentUserID(r), req.DisplayName)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, authResponse{User: toAuthUserResponse(user)})
 }

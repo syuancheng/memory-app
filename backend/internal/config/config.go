@@ -25,6 +25,10 @@ func FromEnv() Config {
 			// session token 与验证码哈希。缺失时宁可启动失败。
 			TokenSecret: strings.TrimSpace(os.Getenv("AUTH_TOKEN_SECRET")),
 			DevCodeLog:  envBool("AUTH_DEV_CODE_LOG", false),
+			Resend: auth.ResendConfig{
+				APIKey: strings.TrimSpace(os.Getenv("RESEND_API_KEY")),
+				From:   strings.TrimSpace(os.Getenv("RESEND_FROM")),
+			},
 			SMTP: auth.SMTPConfig{
 				Host: strings.TrimSpace(os.Getenv("SMTP_HOST")),
 				Port: env("SMTP_PORT", "587"),

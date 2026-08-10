@@ -47,8 +47,9 @@ func NormalizeDirection(direction string) string {
 // DetectDirection 由**正面文本**推断卡片方向，是方向的唯一权威来源。
 //
 // 映射本身是确定的，不需要用户选择：
-//   正面含汉字 → 提示是中文，要产出英文 → zh_to_en
-//   正面纯拉丁 → 句子是英文，要理解中文 → en_to_zh
+//
+//	正面含汉字 → 提示是中文，要产出英文 → zh_to_en
+//	正面纯拉丁 → 句子是英文，要理解中文 → en_to_zh
 //
 // 由后端统一推断（而非客户端传入），可以杜绝「正面是中文但 direction 标成 en_to_zh」
 // 这类自相矛盾的数据；API 与 MCP 两条写入路径共用此函数。

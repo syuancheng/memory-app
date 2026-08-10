@@ -55,12 +55,12 @@ func TestTokenizeAnswerEmpty(t *testing.T) {
 
 func TestDetectDirection(t *testing.T) {
 	cases := map[string]string{
-		"有没有可能明天之前拿到？": DirectionZhToEn,
-		"这个可以打包吗？":                                     DirectionZhToEn,
-		"Is there any chance we could have it?":     DirectionEnToZh,
-		"The board pushed back on the proposal.":    DirectionEnToZh,
-		"":                                          DirectionEnToZh,
-		"Deadline 是明天":                              DirectionZhToEn, // 混排只要含汉字即视为中文提示
+		"有没有可能明天之前拿到？":                           DirectionZhToEn,
+		"这个可以打包吗？":                               DirectionZhToEn,
+		"Is there any chance we could have it?":  DirectionEnToZh,
+		"The board pushed back on the proposal.": DirectionEnToZh,
+		"":                                       DirectionEnToZh,
+		"Deadline 是明天":                           DirectionZhToEn, // 混排只要含汉字即视为中文提示
 	}
 	for front, want := range cases {
 		if got := DetectDirection(front); got != want {
