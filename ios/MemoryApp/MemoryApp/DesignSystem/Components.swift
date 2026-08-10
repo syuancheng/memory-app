@@ -728,6 +728,100 @@ struct AppTextField: View {
     }
 }
 
+/// 密码输入。与 AppTextField 同规格，多一个显示/隐藏切换。
+///
+/// 明文切换不是可有可无的装饰：密码在移动端输错的成本很高，
+/// 而「看一眼确认」是唯一低摩擦的自查方式。
+struct AppSecureField: View {
+    let label: String
+    @Binding var text: String
+    var helper: String? = nil
+    var errorText: String? = nil
+    var isEnabled: Bool = true
+    var submitLabel: SubmitLabel = .done
+    var onSubmit: (() -> Void)? = nil
+
+    init(label: String, text: Binding<String>, helper: String? = nil, errorText: String? = nil,
+         isEnabled: Bool = true, submitLabel: SubmitLabel = .done, onSubmit: (() -> Void)? = nil) {
+        self.label = label
+        self._text = text
+        self.helper = helper
+        self.errorText = errorText
+        self.isEnabled = isEnabled
+        self.submitLabel = submitLabel
+        self.onSubmit = onSubmit
+    }
+
+    @State private var isRevealed = false
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppSpace.sm) {
+            Text(label)
+                .appText(AppType.label, color: AppColor.textTertiary)
+
+            HStack(spacing: AppSpace.sm) {
+                Group {
+                    if isRevealed {
+                        TextField("", text: $text)
+                    } else {
+                        SecureField("", text: $text)
+                    }
+                }
+                .appText(AppType.body, color: isEnabled ? AppColor.textPrimary : AppColor.disabledText)
+                .focused($isFocused)
+                .submitLabel(submitLabel)
+                .onSubmit { onSubmit?() }
+                .disabled(!isEnabled)
+                .textContentType(.password)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+
+                Button {
+                    isRevealed.toggle()
+                } label: {
+                    Image(systemName: isRevealed ? "eye.slash" : "eye")
+                        .font(AppIcon.font(AppLayout.iconSM))
+                        .foregroundStyle(AppColor.iconMuted)
+                        .frame(width: AppLayout.minHitTarget, height: AppLayout.minHitTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isRevealed ? "Hide password" : "Show password")
+                // 抵消热区外扩，让图标视觉上贴住右内边距
+                .padding(.trailing, -AppSpace.md)
+            }
+            .padding(.horizontal, AppSpace.lg)
+            .frame(height: AppLayout.fieldHeight)
+            .background(fieldFill, in: AppRadius.shape(AppRadius.md))
+            .overlay {
+                AppRadius.shape(AppRadius.md)
+                    .strokeBorder(borderColor, lineWidth: borderWidth)
+            }
+            .animation(AppMotion.instant, value: isFocused)
+
+            if let message = errorText ?? helper {
+                Text(message)
+                    .appText(AppType.label, color: errorText != nil ? AppColor.dangerText : AppColor.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var fieldFill: Color {
+        if !isEnabled { return AppColor.disabledFill }
+        return isFocused ? AppColor.surface : AppColor.surfaceSunken
+    }
+    private var borderColor: Color {
+        if !isEnabled { return AppColor.disabledBorder }
+        if errorText != nil { return AppColor.dangerFill }
+        return isFocused ? AppColor.focusRing : AppColor.borderStrong
+    }
+    private var borderWidth: CGFloat {
+        isFocused ? AppLayout.focusRingWidth : AppLayout.hairline
+    }
+}
+
 /// 多行输入（卡片正反面、Subject 描述）
 struct AppTextArea: View {
     let label: String

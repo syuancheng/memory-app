@@ -53,7 +53,7 @@ struct MeView: View {
                 case .about:
                     AboutPage()
                 case .accountEdit(let kind):
-                    AccountEditPlaceholderPage(kind: kind)
+                    AccountEditPage(kind: kind, initialValue: summary?.user.name ?? "")
                 case .document(let document):
                     LocalDocumentPage(document: document)
                 }
@@ -267,6 +267,7 @@ private struct AccountPage: View {
     let summary: MeSummary?
 
     @State private var showingDeleteConfirmation = false
+    @State private var showingPasswordSheet = false
     @State private var statusMessage: String?
     @State private var deleteCode = ""
     @State private var deleteCodeRequested = false
@@ -290,11 +291,10 @@ private struct AccountPage: View {
     var body: some View {
         MePageScaffold(title: "Account") {
             VStack(alignment: .leading, spacing: AppSpace.xxl) {
+                // Avatar 尚无后端支持。此前点进去是一个永远保存不了的页面，
+                // 现在明确标注而不是给一个假的可点入口。
                 MeGroupedSection(title: "Avatar") {
-                    NavigationLink(value: MeDestination.accountEdit(.avatar)) {
-                        AvatarSettingsRow(initial: name.initialLetter)
-                    }
-                    .buttonStyle(.plain)
+                    MeValueRow(title: "Avatar", value: "Coming soon")
                 }
 
                 MeGroupedSection(title: "Account Info") {
@@ -310,15 +310,19 @@ private struct AccountPage: View {
 
                     MeSeparator()
 
-                    NavigationLink(value: MeDestination.accountEdit(.email)) {
-                        MeValueRow(title: "Email", value: email, showsChevron: true)
-                    }
-                    .buttonStyle(.plain)
+                    // 换邮箱需要「验证新地址 + 迁移 identity」的完整流程，尚未实现。
+                    MeValueRow(title: "Email", value: email)
 
                     MeSeparator()
 
-                    NavigationLink(value: MeDestination.accountEdit(.password)) {
-                        MeValueRow(title: "Password", value: "Change", showsChevron: true)
+                    Button {
+                        showingPasswordSheet = true
+                    } label: {
+                        MeValueRow(
+                            title: "Password",
+                            value: session.hasPassword ? "Change" : "Set",
+                            showsChevron: true
+                        )
                     }
                     .buttonStyle(.plain)
                 }
@@ -355,6 +359,10 @@ private struct AccountPage: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+        }
+        .sheet(isPresented: $showingPasswordSheet) {
+            SetPasswordView()
+                .environmentObject(session)
         }
         .confirmationDialog("Delete account?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
             Button(isAppleAccount ? "Delete Account" : "Send Delete Code", role: .destructive) {
@@ -823,47 +831,75 @@ private struct AboutPage: View {
     }
 }
 
-private struct AccountEditPlaceholderPage: View {
+/// 改用户名。用户名纯展示：不唯一、不参与登录，因此没有可用性检查。
+///
+/// 这一屏此前是个占位页 —— 输入框能打字，但 Save 写死 isEnabled: false，
+/// 因为后端根本没有对应端点。现在接 PATCH /account。
+private struct AccountEditPage: View {
     let kind: AccountEditKind
 
-    @State private var value = ""
+    @EnvironmentObject private var session: AuthSessionStore
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var value: String
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    init(kind: AccountEditKind, initialValue: String) {
+        self.kind = kind
+        _value = State(initialValue: initialValue)
+    }
+
+    private var trimmed: String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSave: Bool {
+        !isSaving && !trimmed.isEmpty && trimmed != session.user?.name
+    }
 
     var body: some View {
         MePageScaffold(title: kind.title) {
-            // AppCard 自带 cardPadding(16)，内容不会再落进圆角裁切区 —— 修复左边缘裁切。
             AppCard {
-                if kind == .avatar {
-                    VStack(alignment: .leading, spacing: AppSpace.sm) {
-                        Text(kind.fieldTitle)
-                            .appText(AppType.label, color: AppColor.textTertiary)
-
-                        Text("Avatar editing is coming later.")
-                            .appText(AppType.body, color: AppColor.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } else {
-                    AppTextField(
-                        label: kind.fieldTitle,
-                        text: $value,
-                        placeholder: kind.placeholder,
-                        helper: "Account editing is coming later."
-                    )
-                    .textInputAutocapitalization(kind == .email ? .never : .words)
-                    .autocorrectionDisabled(kind == .email)
-                    .textContentType(kind.textContentType)
-                }
+                AppTextField(
+                    label: kind.fieldTitle,
+                    text: $value,
+                    placeholder: "",
+                    helper: "Shown in the app. It doesn't affect how you sign in."
+                )
+                .textInputAutocapitalization(.words)
+                .textContentType(kind.textContentType)
             }
 
-            // 保存尚不可用 → disabled。用 disabledFill + disabledText（6.92:1），
-            // 而非改造前的「深灰底 + .opacity(0.48)」（约 2.3:1）。
             AppButton(
                 title: "Save",
                 variant: .primary,
                 size: .large,
                 fullWidth: true,
-                isEnabled: false
-            ) {}
+                isEnabled: canSave,
+                isLoading: isSaving
+            ) {
+                Task { await save() }
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .appText(AppType.label, color: AppColor.dangerText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    private func save() async {
+        isSaving = true
+        errorMessage = nil
+        do {
+            try await session.updateDisplayName(trimmed)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isSaving = false
     }
 }
 

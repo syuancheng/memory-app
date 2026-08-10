@@ -48,6 +48,31 @@ final class APIClient {
         let _: ActionStatusResponse = try await request(path: "/auth/request-code", method: "POST", body: EmailPayload(email: email), requiresAuth: false)
     }
 
+    func loginWithPassword(email: String, password: String) async throws -> AuthResponse {
+        try await request(path: "/auth/login-password", method: "POST",
+                          body: PasswordLoginPayload(email: email, password: password), requiresAuth: false)
+    }
+
+    func setPassword(_ password: String) async throws {
+        let _: ActionStatusResponse = try await request(path: "/auth/password", method: "POST",
+                                                        body: SetPasswordPayload(password: password))
+    }
+
+    func requestPasswordResetCode(email: String) async throws {
+        let _: ActionStatusResponse = try await request(path: "/auth/password/reset-code", method: "POST",
+                                                        body: EmailPayload(email: email), requiresAuth: false)
+    }
+
+    func resetPassword(email: String, code: String, password: String) async throws {
+        let _: ActionStatusResponse = try await request(path: "/auth/password/reset", method: "POST",
+                                                        body: ResetPasswordPayload(email: email, code: code, password: password),
+                                                        requiresAuth: false)
+    }
+
+    func updateDisplayName(_ name: String) async throws -> AuthResponse {
+        try await request(path: "/account", method: "PATCH", body: DisplayNamePayload(displayName: name))
+    }
+
     func verifyAuthCode(email: String, code: String) async throws -> AuthResponse {
         try await request(path: "/auth/verify-code", method: "POST", body: VerifyCodePayload(email: email, code: code), requiresAuth: false)
     }
@@ -227,6 +252,29 @@ final class APIClient {
 
 private struct ActionStatusResponse: Decodable {
     let status: String
+}
+
+private struct PasswordLoginPayload: Encodable {
+    let email: String
+    let password: String
+}
+
+private struct SetPasswordPayload: Encodable {
+    let password: String
+}
+
+private struct ResetPasswordPayload: Encodable {
+    let email: String
+    let code: String
+    let password: String
+}
+
+private struct DisplayNamePayload: Encodable {
+    let displayName: String
+
+    enum CodingKeys: String, CodingKey {
+        case displayName = "display_name"
+    }
 }
 
 private struct NamePayload: Encodable {

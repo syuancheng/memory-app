@@ -211,10 +211,26 @@ struct MeUser: Codable, Hashable {
 struct AuthResponse: Codable, Hashable {
     let user: MeUser
     let sessionToken: String?
+    /// 本次验证码登录顺带创建了账号 —— 客户端据此引导设置密码。
+    let isNewUser: Bool
+    /// 该账号是否已设过密码，决定是否展示「用密码登录」入口。
+    let hasPassword: Bool
 
     enum CodingKeys: String, CodingKey {
         case user
         case sessionToken = "session_token"
+        case isNewUser = "is_new_user"
+        case hasPassword = "has_password"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        user = try c.decode(MeUser.self, forKey: .user)
+        sessionToken = try c.decodeIfPresent(String.self, forKey: .sessionToken)
+        // 两个字段是后加的；缺失时按「老账号、无密码」处理，
+        // 避免旧后端或 PATCH /account 这类不返回它们的响应解码失败。
+        isNewUser = try c.decodeIfPresent(Bool.self, forKey: .isNewUser) ?? false
+        hasPassword = try c.decodeIfPresent(Bool.self, forKey: .hasPassword) ?? false
     }
 }
 

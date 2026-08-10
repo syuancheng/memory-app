@@ -34,6 +34,7 @@ private enum AppTab: Hashable {
 }
 
 struct AppShellView: View {
+    @EnvironmentObject private var session: AuthSessionStore
     @State private var selection: AppTab = .home
 
     var body: some View {
@@ -64,6 +65,11 @@ struct AppShellView: View {
         }
         .tint(AppColor.primary)
         .background(AppColor.surfaceBase.ignoresSafeArea())
+        // 刚注册的账号提示设置密码；可跳过，跳过后不再弹。
+        .sheet(isPresented: $session.shouldOfferPasswordSetup) {
+            SetPasswordView(isOnboarding: true)
+                .environmentObject(session)
+        }
     }
 }
 

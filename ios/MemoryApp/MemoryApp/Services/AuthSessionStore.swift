@@ -6,6 +6,11 @@ final class AuthSessionStore: ObservableObject {
     @Published private(set) var user: MeUser?
     @Published private(set) var isAuthenticated = false
     @Published private(set) var isCheckingSession = true
+    /// 当前账号是否已设密码；决定登录页是否展示「用密码登录」，
+    /// 以及 Me 页 Password 一栏显示「设置」还是「修改」。
+    @Published private(set) var hasPassword = false
+    /// 刚注册的账号进入主界面后提示设置密码。可跳过，跳过后不再打扰。
+    @Published var shouldOfferPasswordSetup = false
 
     nonisolated static let sessionDidExpire = Notification.Name("AuthSessionDidExpire")
 
@@ -55,9 +60,39 @@ final class AuthSessionStore: ObservableObject {
         try await APIClient.shared.requestAuthCode(email: email)
     }
 
-    func verifyLoginCode(email: String, code: String) async throws {
+    /// 返回本次是否顺带注册了新账号，供界面决定要不要引导设置密码。
+    @discardableResult
+    func verifyLoginCode(email: String, code: String) async throws -> Bool {
         let response = try await APIClient.shared.verifyAuthCode(email: email, code: code)
         try completeSignIn(response)
+        shouldOfferPasswordSetup = response.isNewUser
+        return response.isNewUser
+    }
+
+    func loginWithPassword(email: String, password: String) async throws {
+        let response = try await APIClient.shared.loginWithPassword(email: email, password: password)
+        try completeSignIn(response)
+    }
+
+    func setPassword(_ password: String) async throws {
+        try await APIClient.shared.setPassword(password)
+        hasPassword = true
+        shouldOfferPasswordSetup = false
+    }
+
+    func requestPasswordResetCode(email: String) async throws {
+        try await APIClient.shared.requestPasswordResetCode(email: email)
+    }
+
+    /// 重置成功后后端会撤销所有旧 session，因此这里不写入登录态，
+    /// 界面应引导用户用新密码重新登录。
+    func resetPassword(email: String, code: String, password: String) async throws {
+        try await APIClient.shared.resetPassword(email: email, code: code, password: password)
+    }
+
+    func updateDisplayName(_ name: String) async throws {
+        let response = try await APIClient.shared.updateDisplayName(name)
+        user = response.user
     }
 
     func signInWithApple(identityToken: String, authorizationCode: String, nonce: String, fullName: String?, email: String?) async throws {
@@ -77,6 +112,7 @@ final class AuthSessionStore: ObservableObject {
         }
         try keychain.saveToken(token)
         user = response.user
+        hasPassword = response.hasPassword
         isAuthenticated = true
     }
 
