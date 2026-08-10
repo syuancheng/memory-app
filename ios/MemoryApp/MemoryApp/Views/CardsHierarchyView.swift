@@ -264,7 +264,6 @@ private struct SubjectSetsPage: View {
                         CardsSetRow(
                             set: set,
                             description: setDisplayDescription(set, subject: subject, metadata: setMetadata[set.id]),
-                            tint: setTint(set, metadata: setMetadata[set.id]),
                             onOpen: {
                                 selectedSet = set
                             },
@@ -750,14 +749,13 @@ private struct CardsSubjectRow: View {
 private struct CardsSetRow: View {
     let set: AppTag
     let description: String
-    let tint: AppColor.SubjectAccent
     let onOpen: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: AppSpace.md) {
-            InitialBadge(text: "Set", tint: tint)
+            AppTypeBadge(icon: AppIcon.typeSet)
 
             VStack(alignment: .leading, spacing: AppSpace.xs) {
                 Text(set.name)
@@ -770,7 +768,7 @@ private struct CardsSetRow: View {
                     .lineLimit(1)
 
                 Text("\(set.cardCount) cards · \(set.dueCount) due")
-                    .appText(AppType.label, color: tint.text)
+                    .appText(AppType.label, color: AppColor.textSecondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
             }
@@ -802,30 +800,32 @@ private struct CardsCardRow: View {
     let onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpace.sm) {
-            HStack(alignment: .top, spacing: AppSpace.md) {
+        HStack(alignment: .top, spacing: AppSpace.md) {
+            AppTypeBadge(icon: AppIcon.typeCard)
+
+            VStack(alignment: .leading, spacing: AppSpace.sm) {
                 Text(card.answerText)
                     .appText(AppType.headline)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                CardsRowMenu(
-                    editTitle: "Edit Card",
-                    deleteTitle: "Delete Card",
-                    onEdit: onEdit,
-                    onDelete: onDelete
-                )
+                Text(card.frontText)
+                    .appText(AppType.body, color: AppColor.textTertiary)
+                    .lineLimit(2)
+
+                Text(cardMetadata(card))
+                    .appText(AppType.caption, color: AppColor.textTertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Text(card.frontText)
-                .appText(AppType.body, color: AppColor.textTertiary)
-                .lineLimit(2)
-
-            Text(cardMetadata(card))
-                .appText(AppType.caption, color: AppColor.textTertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            CardsRowMenu(
+                editTitle: "Edit Card",
+                deleteTitle: "Delete Card",
+                onEdit: onEdit,
+                onDelete: onDelete
+            )
         }
         .cardsRowSurface()
     }
@@ -1745,15 +1745,6 @@ private func subjectDisplayDescription(_ subject: AppSubject, metadata: SubjectP
         return subjectDescription(subject)
     }
     return description
-}
-
-private func setTint(_ set: AppTag, metadata: SetPresentation?) -> AppColor.SubjectAccent {
-    switch metadata?.defaultMode {
-    case SetDefaultReviewMode.test.rawValue:
-        return AppColor.subjectAccent("sky")
-    default:
-        return rowTint(for: set)
-    }
 }
 
 private func setDisplayDescription(_ set: AppTag, subject: AppSubject, metadata: SetPresentation?) -> String {

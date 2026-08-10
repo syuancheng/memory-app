@@ -843,9 +843,16 @@ struct AppEmptyState: View {
     var body: some View {
         VStack(spacing: density == .standard ? AppSpace.md : AppSpace.xs) {
             if density == .standard, let icon {
-                Image(systemName: icon)
-                    .font(AppIcon.font(AppSpace.xxxl))
-                    .foregroundStyle(AppColor.neutral400)
+                // 裸图标浮在页面上像「忘了放东西」；套一个中性圆底后
+                // 读起来才是「这里本来就是空的」。
+                Circle()
+                    .fill(AppColor.iconContainerBase)
+                    .frame(width: AppLayout.avatarLG, height: AppLayout.avatarLG)
+                    .overlay {
+                        Image(systemName: icon)
+                            .font(AppIcon.font(AppLayout.iconLG))
+                            .foregroundStyle(AppColor.iconMuted)
+                    }
                     .padding(.bottom, AppSpace.xs)
             }
 
@@ -875,3 +882,23 @@ struct AppEmptyState: View {
     }
 }
 
+
+
+/// 内容类型徽标。恒定的中性容器 + 类型图形，回答「这是什么」。
+/// 与 subject 身份色（每个 subject 不同，回答「这是哪一个」）分工明确 ——
+/// 类型不该用颜色区分，否则会和身份色抢同一个视觉通道。
+struct AppTypeBadge: View {
+    let icon: String
+    var size: CGFloat = AppLayout.avatarMD
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: AppRadius.md, style: .continuous)
+            .fill(AppColor.iconContainerBase)
+            .frame(width: size, height: size)
+            .overlay {
+                Image(systemName: icon)
+                    .font(AppIcon.font(AppLayout.iconMD))
+                    .foregroundStyle(AppColor.iconDefault)
+            }
+    }
+}

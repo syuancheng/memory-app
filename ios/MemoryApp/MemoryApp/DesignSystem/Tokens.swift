@@ -596,6 +596,12 @@ enum AppIcon {
     static let tabAI    = "sparkles"
     static let tabMe    = "person.fill"
 
+    /// 内容类型标识。**同类型恒定同一图形与容器色**，用来回答「这是什么」；
+    /// 「这是哪一个」由 subject 身份色回答（见 AppColor.subjectAccents）。
+    /// 改造前 Set 行用按 id 哈希出来的随机色，颜色不表达任何含义。
+    static let typeSet  = "rectangle.stack"
+    static let typeCard = "rectangle.portrait"
+
     /// 导航语义符号 —— 全工程唯一来源，禁止逐屏另选
     static let back      = "chevron.left"
     static let close     = "xmark"
