@@ -119,10 +119,14 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 窗口必须覆盖前端最长的展示跨度：
+	//   · Me 页热力图 16 周 = 112 天
+	//   · 成就页月历可回翻 12 个月
+	// 原来只给 28 天，导致热力图左侧 3/4 恒为空、月历翻页永远无数据。
 	rows, err := s.db.Query(r.Context(), `
 		SELECT day::date::text,
 		       COUNT(re.id)::int
-		FROM generate_series(current_date - interval '27 days', current_date, interval '1 day') AS day
+		FROM generate_series(current_date - interval '364 days', current_date, interval '1 day') AS day
 		LEFT JOIN review_events re
 		  ON re.user_id = $1 AND re.created_at::date = day::date
 		GROUP BY day
@@ -570,10 +574,13 @@ func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "card not found")
 		return
 	}
+	// 纵深防御：上面的 UPDATE cards 已带 user_id 且校验过 RowsAffected，
+	// 但这条不在同一事务里，补一次归属校验（写法同 masterCard）。
 	_, err = s.db.Exec(r.Context(), `
 		UPDATE review_states SET status = 'deleted'
 		WHERE card_id = $1
-	`, chi.URLParam(r, "cardID"))
+		  AND EXISTS (SELECT 1 FROM cards WHERE id = $1 AND user_id = $2)
+	`, chi.URLParam(r, "cardID"), userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -753,18 +760,15 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, userID string, cardID s
 	if len(req.TagIDs) == 0 {
 		return model.Card{}, fmt.Errorf("at least one tag_id is required")
 	}
-	if req.CardType == "" {
-		req.CardType = "speaking_expression"
-	}
-	if req.Direction == "" {
-		req.Direction = "zh_to_en"
-	}
+	req.CardType = service.NormalizeCardType(req.CardType)
+	// 方向由正面文本推断，不接受客户端指定 —— 避免与内容自相矛盾
+	req.Direction = service.DetectDirection(req.FrontText)
 
 	grammarJSON, err := model.GrammarJSON(req.GrammarPhrases)
 	if err != nil {
 		return model.Card{}, err
 	}
-	tokens := service.TokenizeAnswer(req.AnswerText)
+	tokens := service.TokenizeAnswer(req.AnswerText, req.Direction)
 	tokensJSON, err := model.TokensJSON(tokens)
 	if err != nil {
 		return model.Card{}, err

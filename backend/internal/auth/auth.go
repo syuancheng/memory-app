@@ -8,12 +8,9 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
-	"fmt"
-	"log"
 	"math/big"
 	"net/http"
 	"net/mail"
-	"net/smtp"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +25,7 @@ import (
 const (
 	PurposeLogin         = "login"
 	PurposeDeleteAccount = "delete_account"
+	PurposePasswordReset = "password_reset"
 
 	CodeTTL       = 10 * time.Minute
 	SessionTTL    = 30 * 24 * time.Hour
@@ -39,8 +37,15 @@ const (
 type Config struct {
 	TokenSecret string
 	DevCodeLog  bool
+	Resend      ResendConfig
 	SMTP        SMTPConfig
 	Apple       AppleConfig
+}
+
+type ResendConfig struct {
+	APIKey string
+	// From 形如 "Cardly <noreply@example.com>"，域名须在 Resend 验证过。
+	From string
 }
 
 type SMTPConfig struct {
@@ -66,6 +71,7 @@ type Service struct {
 	now          func() time.Time
 	httpClient   *http.Client
 	appleJWKSURL string
+	sender       CodeSender
 	appleKeysMu  sync.Mutex
 	appleKeys    appleKeySet
 	appleKeysAt  time.Time
@@ -85,34 +91,40 @@ func NewService(pool *pgxpool.Pool, cfg Config) (*Service, error) {
 	if cfg.SMTP.Port == "" {
 		cfg.SMTP.Port = "587"
 	}
-	return &Service{
+	svc := &Service{
 		pool:         pool,
 		cfg:          cfg,
 		now:          time.Now,
 		httpClient:   &http.Client{Timeout: 8 * time.Second},
 		appleJWKSURL: "https://appleid.apple.com/auth/keys",
-	}, nil
+	}
+	svc.sender = newCodeSender(cfg, svc.httpClient)
+	return svc, nil
 }
 
-func (s *Service) RequestEmailCode(ctx context.Context, email string, purpose string) error {
-	email, err := NormalizeEmail(email)
+// RequestCode 生成并投递验证码。
+//
+// identifierType 决定投递通道（邮箱走邮件、将来手机号走短信）；
+// (identifierType, identifier, purpose) 三元组共同定位一条码，
+// 避免不同类型的同名标识符互相消费。
+func (s *Service) RequestCode(ctx context.Context, identifierType, identifier, purpose string) error {
+	identifier, err := s.normalizeIdentifier(identifierType, identifier)
 	if err != nil {
 		return err
 	}
 	if !validPurpose(purpose) {
 		return errors.New("invalid verification purpose")
 	}
-	if purpose == PurposeDeleteAccount {
-		var exists bool
-		if err := s.pool.QueryRow(ctx, `
-			SELECT EXISTS (
-				SELECT 1 FROM users
-				WHERE lower(email) = lower($1) AND deleted_at IS NULL
-			)
-		`, email).Scan(&exists); err != nil {
+	if purpose == PurposeDeleteAccount || purpose == PurposePasswordReset {
+		userID, err := s.UserIDByIdentity(ctx, identifierType, identifier)
+		if err != nil {
 			return err
 		}
-		if !exists {
+		if userID == "" {
+			// 重置密码不暴露账号是否存在：静默成功，不发信也不落库。
+			if purpose == PurposePasswordReset {
+				return nil
+			}
 			return errors.New("user not found")
 		}
 	}
@@ -121,10 +133,10 @@ func (s *Service) RequestEmailCode(ctx context.Context, email string, purpose st
 	err = s.pool.QueryRow(ctx, `
 		SELECT created_at
 		FROM auth_verification_codes
-		WHERE identifier = $1 AND purpose = $2 AND consumed_at IS NULL
+		WHERE identifier_type = $1 AND identifier = $2 AND purpose = $3 AND consumed_at IS NULL
 		ORDER BY created_at DESC
 		LIMIT 1
-	`, email, purpose).Scan(&lastCreatedAt)
+	`, identifierType, identifier, purpose).Scan(&lastCreatedAt)
 	if err != nil && err != pgx.ErrNoRows {
 		return err
 	}
@@ -136,58 +148,72 @@ func (s *Service) RequestEmailCode(ctx context.Context, email string, purpose st
 	if err != nil {
 		return err
 	}
-	codeHash := s.hashValue(email + ":" + purpose + ":" + code)
-	_, err = s.pool.Exec(ctx, `
-		INSERT INTO auth_verification_codes (
-			id, identifier_type, identifier, purpose, code_hash, expires_at
-		) VALUES ($1, 'email', $2, $3, $4, $5)
-	`, uuid.NewString(), email, purpose, codeHash, s.now().Add(CodeTTL))
-	if err != nil {
+
+	// 先投递再落库。反过来的话，投递失败时用户既看到报错、又因为库里已有
+	// 一条未消费的码而被冷却 60 秒。
+	if err := s.sender.SendCode(ctx, identifierType, identifier, code, purpose); err != nil {
 		return err
 	}
 
-	return s.sendEmailCode(email, code, purpose)
+	codeHash := s.hashValue(identifierType + ":" + identifier + ":" + purpose + ":" + code)
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO auth_verification_codes (
+			id, identifier_type, identifier, purpose, code_hash, expires_at
+		) VALUES ($1, $2, $3, $4, $5, $6)
+	`, uuid.NewString(), identifierType, identifier, purpose, codeHash, s.now().Add(CodeTTL))
+	return err
 }
 
-func (s *Service) VerifyLoginCode(ctx context.Context, email string, code string) (User, string, error) {
+// RequestEmailCode 保留为邮箱通道的便捷入口。
+func (s *Service) RequestEmailCode(ctx context.Context, email string, purpose string) error {
+	return s.RequestCode(ctx, IdentityEmail, email, purpose)
+}
+
+func (s *Service) normalizeIdentifier(identifierType, identifier string) (string, error) {
+	switch identifierType {
+	case IdentityEmail:
+		return NormalizeEmail(identifier)
+	case IdentityPhone:
+		// 手机号尚未启用；这里先占位，接入时补 E.164 归一化。
+		return "", errors.New("phone identifiers are not supported yet")
+	default:
+		return "", errors.New("unsupported identifier type")
+	}
+}
+
+func (s *Service) VerifyLoginCode(ctx context.Context, email string, code string) (User, string, bool, error) {
 	email, err := NormalizeEmail(email)
 	if err != nil {
-		return User{}, "", err
+		return User{}, "", false, err
 	}
-	if err := s.consumeCode(ctx, email, PurposeLogin, code); err != nil {
-		return User{}, "", err
+	if err := s.consumeCode(ctx, IdentityEmail, email, PurposeLogin, code); err != nil {
+		return User{}, "", false, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return User{}, "", err
+		return User{}, "", false, err
 	}
 	defer tx.Rollback(ctx)
 
-	var user User
-	err = tx.QueryRow(ctx, `
-		INSERT INTO users (id, email, primary_email, name, display_name, status, deleted_at, last_login_at)
-		VALUES ($1, $2, $2, $3, $3, 'active', NULL, now())
-		ON CONFLICT (email) DO UPDATE
-		SET deleted_at = NULL,
-		    status = 'active',
-		    primary_email = EXCLUDED.primary_email,
-		    last_login_at = now(),
-		    updated_at = now()
-		RETURNING id::text, COALESCE(primary_email, email), COALESCE(display_name, name, '')
-	`, uuid.NewString(), email, defaultName(email)).Scan(&user.ID, &user.Email, &user.Name)
+	user, isNew, err := s.FindOrCreateUser(ctx, tx, IdentityRef{
+		Type:     IdentityEmail,
+		Value:    email,
+		Email:    email,
+		Verified: true,
+	})
 	if err != nil {
-		return User{}, "", err
+		return User{}, "", false, err
 	}
 
 	token, err := s.createSession(ctx, tx, user.ID)
 	if err != nil {
-		return User{}, "", err
+		return User{}, "", false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return User{}, "", err
+		return User{}, "", false, err
 	}
-	return user, token, nil
+	return user, token, isNew, nil
 }
 
 func (s *Service) VerifyEmailCodeForUser(ctx context.Context, email string, purpose string, code string) (User, error) {
@@ -198,7 +224,7 @@ func (s *Service) VerifyEmailCodeForUser(ctx context.Context, email string, purp
 	if !validPurpose(purpose) {
 		return User{}, errors.New("invalid verification purpose")
 	}
-	if err := s.consumeCode(ctx, email, purpose, code); err != nil {
+	if err := s.consumeCode(ctx, IdentityEmail, email, purpose, code); err != nil {
 		return User{}, err
 	}
 	return s.FindUserByEmail(ctx, email)
@@ -261,7 +287,7 @@ func (s *Service) DeleteAccount(ctx context.Context, userID string, code string)
 		return err
 	}
 	if user.Provider != AppleProvider {
-		if err := s.consumeCode(ctx, user.Email, PurposeDeleteAccount, code); err != nil {
+		if err := s.consumeCode(ctx, IdentityEmail, user.Email, PurposeDeleteAccount, code); err != nil {
 			return err
 		}
 	}
@@ -303,7 +329,7 @@ func (s *Service) FindUserByID(ctx context.Context, userID string) (User, error)
 	var user User
 	err := s.pool.QueryRow(ctx, `
 		SELECT u.id::text, COALESCE(u.primary_email, u.email), COALESCE(u.display_name, u.name, ''), COALESCE(ac.provider, 'email')
-		FROM users
+		FROM users u
 		LEFT JOIN account_connections ac ON ac.user_id = u.id AND ac.provider = 'apple'
 		WHERE u.id = $1 AND u.deleted_at IS NULL AND u.status = 'active'
 	`, userID).Scan(&user.ID, &user.Email, &user.Name, &user.Provider)
@@ -340,7 +366,7 @@ func (s *Service) createSession(ctx context.Context, tx txSessionWriter, userID 
 	return token, nil
 }
 
-func (s *Service) consumeCode(ctx context.Context, email string, purpose string, code string) error {
+func (s *Service) consumeCode(ctx context.Context, identifierType, identifier string, purpose string, code string) error {
 	code = strings.TrimSpace(code)
 	if code == "" {
 		return errors.New("code is required")
@@ -357,14 +383,15 @@ func (s *Service) consumeCode(ctx context.Context, email string, purpose string,
 	err = tx.QueryRow(ctx, `
 		SELECT id::text, code_hash, attempts
 		FROM auth_verification_codes
-		WHERE identifier = $1
-		  AND purpose = $2
+		WHERE identifier_type = $1
+		  AND identifier = $2
+		  AND purpose = $3
 		  AND consumed_at IS NULL
 		  AND expires_at > now()
 		ORDER BY created_at DESC
 		LIMIT 1
 		FOR UPDATE
-	`, email, purpose).Scan(&id, &expectedHash, &attempts)
+	`, identifierType, identifier, purpose).Scan(&id, &expectedHash, &attempts)
 	if err == pgx.ErrNoRows {
 		return errors.New("verification code is invalid or expired")
 	}
@@ -375,7 +402,7 @@ func (s *Service) consumeCode(ctx context.Context, email string, purpose string,
 		return errors.New("verification code attempts exceeded")
 	}
 
-	actualHash := s.hashValue(email + ":" + purpose + ":" + code)
+	actualHash := s.hashValue(identifierType + ":" + identifier + ":" + purpose + ":" + code)
 	if subtle.ConstantTimeCompare([]byte(actualHash), []byte(expectedHash)) != 1 {
 		_, _ = tx.Exec(ctx, `UPDATE auth_verification_codes SET attempts = attempts + 1 WHERE id = $1`, id)
 		if err := tx.Commit(ctx); err != nil {
@@ -403,38 +430,6 @@ func (s *Service) hashValue(value string) string {
 	mac := hmac.New(sha256.New, []byte(s.cfg.TokenSecret))
 	mac.Write([]byte(value))
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-}
-
-func (s *Service) sendEmailCode(email string, code string, purpose string) error {
-	if s.cfg.DevCodeLog {
-		log.Printf("auth verification code for %s (%s): %s", email, purpose, code)
-		return nil
-	}
-	if s.cfg.SMTP.Host == "" || s.cfg.SMTP.From == "" {
-		return errors.New("email delivery is not configured")
-	}
-
-	subject := "Your Cardly verification code"
-	if purpose == PurposeDeleteAccount {
-		subject = "Confirm your Cardly account deletion"
-	}
-	body := fmt.Sprintf("Your Cardly verification code is %s. It expires in 10 minutes.", code)
-	message := strings.Join([]string{
-		"From: " + s.cfg.SMTP.From,
-		"To: " + email,
-		"Subject: " + subject,
-		"MIME-Version: 1.0",
-		"Content-Type: text/plain; charset=UTF-8",
-		"",
-		body,
-	}, "\r\n")
-
-	addr := s.cfg.SMTP.Host + ":" + s.cfg.SMTP.Port
-	var smtpAuth smtp.Auth
-	if s.cfg.SMTP.User != "" || s.cfg.SMTP.Pass != "" {
-		smtpAuth = smtp.PlainAuth("", s.cfg.SMTP.User, s.cfg.SMTP.Pass, s.cfg.SMTP.Host)
-	}
-	return smtp.SendMail(addr, smtpAuth, s.cfg.SMTP.From, []string{email}, []byte(message))
 }
 
 func NormalizeEmail(email string) (string, error) {
@@ -485,5 +480,10 @@ func defaultName(email string) string {
 }
 
 func validPurpose(purpose string) bool {
-	return purpose == PurposeLogin || purpose == PurposeDeleteAccount
+	switch purpose {
+	case PurposeLogin, PurposeDeleteAccount, PurposePasswordReset:
+		return true
+	default:
+		return false
+	}
 }

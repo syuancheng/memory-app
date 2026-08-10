@@ -232,7 +232,7 @@ func (s *OAuthServer) submitAuthorize(w http.ResponseWriter, r *http.Request) {
 
 	userID := ""
 	if s.authService != nil {
-		user, _, err := s.authService.VerifyLoginCode(r.Context(), r.PostForm.Get("email"), r.PostForm.Get("code"))
+		user, _, _, err := s.authService.VerifyLoginCode(r.Context(), r.PostForm.Get("email"), r.PostForm.Get("code"))
 		if err != nil {
 			s.showAuthorize(w, formAsRequest(r), err.Error())
 			return

@@ -187,7 +187,7 @@ func TestOAuthAuthMiddleware(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	handler := withAuth("static-token", server, next)
+	handler := withAuth("static-token", server, nil, true, next)
 
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/mcp", nil))

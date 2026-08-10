@@ -11,7 +11,15 @@ enum APIError: LocalizedError {
         case .badURL:
             return "Invalid API URL"
         case .badStatus(let status, let message):
-            return "API error \(status): \(message)"
+            // 后端错误体是 {"error":"..."}，直接把整段 JSON 甩给用户没有意义。
+            // 能解析出 error 字段就只显示那句话，解析不了才回落到原始文本。
+            if let data = message.data(using: .utf8),
+               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let reason = object["error"] as? String,
+               !reason.isEmpty {
+                return reason
+            }
+            return message.isEmpty ? "Request failed (\(status))" : message
         case .unauthorized:
             return "Please sign in again."
         }
@@ -38,6 +46,31 @@ final class APIClient {
 
     func requestAuthCode(email: String) async throws {
         let _: ActionStatusResponse = try await request(path: "/auth/request-code", method: "POST", body: EmailPayload(email: email), requiresAuth: false)
+    }
+
+    func loginWithPassword(email: String, password: String) async throws -> AuthResponse {
+        try await request(path: "/auth/login-password", method: "POST",
+                          body: PasswordLoginPayload(email: email, password: password), requiresAuth: false)
+    }
+
+    func setPassword(_ password: String) async throws {
+        let _: ActionStatusResponse = try await request(path: "/auth/password", method: "POST",
+                                                        body: SetPasswordPayload(password: password))
+    }
+
+    func requestPasswordResetCode(email: String) async throws {
+        let _: ActionStatusResponse = try await request(path: "/auth/password/reset-code", method: "POST",
+                                                        body: EmailPayload(email: email), requiresAuth: false)
+    }
+
+    func resetPassword(email: String, code: String, password: String) async throws {
+        let _: ActionStatusResponse = try await request(path: "/auth/password/reset", method: "POST",
+                                                        body: ResetPasswordPayload(email: email, code: code, password: password),
+                                                        requiresAuth: false)
+    }
+
+    func updateDisplayName(_ name: String) async throws -> AuthResponse {
+        try await request(path: "/account", method: "PATCH", body: DisplayNamePayload(displayName: name))
     }
 
     func verifyAuthCode(email: String, code: String) async throws -> AuthResponse {
@@ -85,6 +118,20 @@ final class APIClient {
 
     func deleteSubject(subjectID: String) async throws {
         let _: ActionStatusResponse = try await request(path: "/subjects/\(subjectID)", method: "DELETE")
+    }
+
+    // MARK: MCP 个人访问令牌
+
+    func listMCPTokens() async throws -> [MCPToken] {
+        try await request(path: "/mcp/tokens")
+    }
+
+    func createMCPToken(name: String) async throws -> MCPToken {
+        try await request(path: "/mcp/tokens", method: "POST", body: NamePayload(name: name))
+    }
+
+    func revokeMCPToken(tokenID: String) async throws {
+        let _: ActionStatusResponse = try await request(path: "/mcp/tokens/\(tokenID)", method: "DELETE")
     }
 
     func getMeSummary() async throws -> MeSummary {
@@ -205,6 +252,29 @@ final class APIClient {
 
 private struct ActionStatusResponse: Decodable {
     let status: String
+}
+
+private struct PasswordLoginPayload: Encodable {
+    let email: String
+    let password: String
+}
+
+private struct SetPasswordPayload: Encodable {
+    let password: String
+}
+
+private struct ResetPasswordPayload: Encodable {
+    let email: String
+    let code: String
+    let password: String
+}
+
+private struct DisplayNamePayload: Encodable {
+    let displayName: String
+
+    enum CodingKeys: String, CodingKey {
+        case displayName = "display_name"
+    }
 }
 
 private struct NamePayload: Encodable {

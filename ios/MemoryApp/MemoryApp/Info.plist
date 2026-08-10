@@ -22,12 +22,6 @@
 	<string>1</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>UIAppFonts</key>
-	<array>
-		<string>OPPOSans-Regular.ttf</string>
-		<string>OPPOSans-Medium.ttf</string>
-		<string>OPPOSans-Bold.ttf</string>
-	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

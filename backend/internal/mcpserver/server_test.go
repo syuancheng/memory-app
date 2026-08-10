@@ -11,7 +11,9 @@ import (
 )
 
 func TestToolsAddAndDeleteCards(t *testing.T) {
-	ctx := context.Background()
+	// 工具从 context 取 userID（withAuth 中间件负责注入）。测试直接调用工具，
+	// 必须自己注入，否则一律返回 "authenticated user is required"。
+	ctx := context.WithValue(context.Background(), mcpUserIDKey{}, db.DemoUserID)
 	pool := testPool(t, ctx)
 	tools := &Tools{pool: pool}
 
@@ -161,6 +163,10 @@ func seedUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID stri
 func seedSubjectAndSetForUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID string, subjectID string, setID string) {
 	t.Helper()
 
+	// 名称按 subjectID 派生。此前固定用 "MCP Smoke Subject" 配随机 subjectID，
+	// ON CONFLICT (id) 挡不住 UNIQUE(user_id, name)，导致测试跑第二次必然
+	// 因上一次的残留而失败。
+	subjectName := "MCP Smoke Subject " + subjectID[:8]
 	_, err := pool.Exec(ctx, `
 		INSERT INTO subjects (id, user_id, name, deleted_at, updated_at)
 		VALUES ($1, $2, $3, NULL, now())
@@ -168,7 +174,7 @@ func seedSubjectAndSetForUser(t *testing.T, ctx context.Context, pool *pgxpool.P
 		SET name = EXCLUDED.name,
 		    deleted_at = NULL,
 		    updated_at = now()
-	`, subjectID, userID, "MCP Smoke Subject")
+	`, subjectID, userID, subjectName)
 	if err != nil {
 		t.Fatalf("seed subject: %v", err)
 	}
@@ -181,7 +187,7 @@ func seedSubjectAndSetForUser(t *testing.T, ctx context.Context, pool *pgxpool.P
 		    name = EXCLUDED.name,
 		    deleted_at = NULL,
 		    updated_at = now()
-	`, setID, userID, subjectID, "MCP Smoke Set")
+	`, setID, userID, subjectID, "MCP Smoke Set "+setID[:8])
 	if err != nil {
 		t.Fatalf("seed set: %v", err)
 	}

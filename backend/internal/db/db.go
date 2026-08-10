@@ -260,7 +260,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		if err != nil {
 			return err
 		}
-		tokenJSON, err := json.Marshal(service.TokenizeAnswer(card.AnswerText))
+		tokenJSON, err := json.Marshal(service.TokenizeAnswer(card.AnswerText, service.DirectionZhToEn))
 		if err != nil {
 			return err
 		}
@@ -270,7 +270,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 				id, user_id, subject_id, card_type, direction, front_text, answer_text,
 				grammar_phrases, answer_tokens, deleted_at, updated_at
 			) VALUES (
-				$1, $2, $3, 'speaking_expression', 'zh_to_en', $4, $5,
+				$1, $2, $3, 'sentence', 'zh_to_en', $4, $5,
 				$6::jsonb, $7::jsonb, NULL, now()
 			)
 			ON CONFLICT (id) DO UPDATE
@@ -379,7 +379,7 @@ CREATE TABLE IF NOT EXISTS cards (
   id UUID PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id),
   subject_id UUID NOT NULL REFERENCES subjects(id),
-  card_type TEXT NOT NULL DEFAULT 'speaking_expression',
+  card_type TEXT NOT NULL DEFAULT 'sentence',
   direction TEXT NOT NULL DEFAULT 'zh_to_en',
   front_text TEXT NOT NULL,
   answer_text TEXT NOT NULL,
@@ -440,6 +440,62 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
   expires_at TIMESTAMPTZ NOT NULL,
   revoked_at TIMESTAMPTZ
 );
+
+-- 一个人（users）可以有多种登录方式（identities）。
+--
+-- type 分两类：
+--   可验证的联系方式 —— 'email' | 'phone'：能收验证码，能独立作为登录入口
+--   第三方身份       —— 'apple' | 'wechat' | 'google'：value 存 provider 的 sub/openid
+--
+-- UNIQUE(type, value) 就是邮箱去重的执行点，由数据库保证而非应用逻辑。
+-- 未来加手机号 = 多一个 type 取值 + 一个短信发送实现，不动表结构。
+CREATE TABLE IF NOT EXISTS identities (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id),
+  type TEXT NOT NULL,
+  value TEXT NOT NULL,
+  verified_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (type, value)
+);
+
+CREATE INDEX IF NOT EXISTS idx_identities_user ON identities (user_id);
+
+-- 回填现有邮箱用户。Apple 用户（占位邮箱）本轮不迁移，仍走
+-- account_connections 那条老路。
+INSERT INTO identities (id, user_id, type, value, verified_at)
+SELECT gen_random_uuid(), id, 'email', lower(email), created_at
+FROM users
+WHERE email IS NOT NULL
+  AND email NOT LIKE '%@apple.cardly.local'
+  AND deleted_at IS NULL
+ON CONFLICT (type, value) DO NOTHING;
+
+-- 身份唯一性移交 identities 后，users.email 降级为展示用主邮箱。
+-- 放开 NOT NULL，无邮箱的登录方式（微信/手机号）才不必再伪造占位地址。
+-- UNIQUE(email) 保留：Postgres 允许多个 NULL，因此它与可空并不冲突，
+-- 留作一层额外防御。
+ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
+
+-- 密码是可选的快捷登录方式：验证码始终可用，未设密码的账号 password_hash 为空。
+-- 放在 users 而非 identities：一个人可能有多个邮箱身份，但只该有一个密码。
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_set_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS mcp_tokens (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id),
+  token_hash TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS mcp_tokens_user_idx ON mcp_tokens (user_id) WHERE revoked_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS account_connections (
   id UUID PRIMARY KEY,

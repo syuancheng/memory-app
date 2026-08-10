@@ -20,11 +20,12 @@ struct ReviewSessionView: View {
 
     var body: some View {
         ZStack {
-            AppSurface.background
+            AppColor.surfaceBase
                 .ignoresSafeArea()
 
             if isLoading {
                 ProgressView()
+                    .tint(AppColor.primary)
             } else if let currentCard {
                 ReviewCardView(
                     mode: mode,
@@ -41,31 +42,23 @@ struct ReviewSessionView: View {
             } else if initialCardCount > 0 {
                 completionView
             } else {
-                VStack(spacing: 10) {
-                    Text("No due cards")
-                        .font(AppFont.medium(22))
-                    Text("Reviewed cards will return when they are due again.")
-                        .font(AppFont.regular(15))
-                        .foregroundStyle(AppSurface.muted)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(24)
+                AppEmptyState(
+                    icon: "checkmark.circle",
+                    title: "No due cards",
+                    message: "Reviewed cards will return when they are due again."
+                )
+                .padding(.horizontal, AppLayout.screenMargin)
             }
 
             if let errorMessage {
                 VStack {
                     Spacer()
                     Text(errorMessage)
-                        .font(AppFont.regular(13))
-                        .foregroundStyle(AppSurface.coral)
-                        .padding(12)
-                        .background(AppSurface.cardSubtle)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(AppSurface.line, lineWidth: 1)
-                        )
-                        .padding()
+                        .appText(AppType.label, color: AppColor.dangerText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(AppSpace.md)
+                        .background(AppColor.dangerSoft, in: AppRadius.shape(AppRadius.md))
+                        .padding(AppLayout.screenMargin)
                 }
             }
         }
@@ -160,40 +153,29 @@ struct ReviewSessionView: View {
     }
 
     private var completionView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: AppSpace.md) {
             Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 44, weight: .medium))
-                .foregroundStyle(AppSurface.green)
-                .padding(.bottom, 4)
+                .font(AppIcon.font(AppSpace.huge))
+                .foregroundStyle(AppColor.successFill)   // 图标场景，3.77:1 达标（非文字）
+                .padding(.bottom, AppSpace.xs)
 
             Text("Done for now")
-                .font(AppFont.medium(28))
-                .foregroundStyle(AppSurface.text)
+                .appText(AppType.title1)
 
             Text("Completed \(completedCount) of \(initialCardCount) cards.")
-                .font(AppFont.regular(15))
-                .foregroundStyle(AppSurface.muted)
+                .appText(AppType.body, color: AppColor.textTertiary)
+                .multilineTextAlignment(.center)
 
-            Button("Back to home") {
-                onClose()
-            }
-            .buttonStyle(CompletionButtonStyle())
-            .padding(.top, 10)
+            AppButton(
+                title: "Back to home",
+                variant: .primary,
+                size: .large,
+                fullWidth: true,
+                action: onClose
+            )
+            .padding(.top, AppSpace.sm)
         }
-        .padding(.horizontal, 28)
+        .padding(.horizontal, AppLayout.screenMargin)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-struct CompletionButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(AppFont.medium(16))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, minHeight: 54)
-            .background(AppSurface.dark.opacity(configuration.isPressed ? 0.86 : 1))
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .shadow(color: AppSurface.dark.opacity(0.14), radius: 18, x: 0, y: 10)
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
     }
 }

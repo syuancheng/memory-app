@@ -8,6 +8,7 @@ import (
 	"memory-app/backend/internal/auth"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -21,6 +22,9 @@ type currentUserKey struct{}
 func NewServer(pool *pgxpool.Pool, authService *auth.Service) http.Handler {
 	server := &Server{db: pool, auth: authService}
 	router := chi.NewRouter()
+	// Recoverer 必须在最外层：任何 handler panic（含下面 currentUserID 的
+	// 断言失败）都应转成 500 并保住进程，而不是打挂整个服务。
+	router.Use(middleware.Recoverer)
 	router.Use(cors)
 
 	router.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -31,15 +35,25 @@ func NewServer(pool *pgxpool.Pool, authService *auth.Service) http.Handler {
 		r.Post("/auth/request-code", server.requestAuthCode)
 		r.Post("/auth/verify-code", server.verifyAuthCode)
 		r.Post("/auth/apple", server.signInWithApple)
+		r.Post("/auth/login-password", server.loginWithPassword)
+		r.Post("/auth/password/reset-code", server.requestPasswordResetCode)
+		r.Post("/auth/password/reset", server.resetPassword)
 
 		r.Group(func(r chi.Router) {
 			r.Use(server.requireAuth)
 			r.Get("/auth/me", server.getCurrentUser)
 			r.Post("/auth/logout", server.logout)
+			r.Post("/auth/password", server.setPassword)
+			r.Patch("/account", server.updateAccount)
 			r.Post("/account/delete-code", server.requestDeleteAccountCode)
 			r.Delete("/account", server.deleteAccount)
 
 			r.Get("/me/summary", server.getMeSummary)
+
+			// MCP 个人访问令牌：把 MCP 调用绑定到真实账号
+			r.Get("/mcp/tokens", server.listMCPTokens)
+			r.Post("/mcp/tokens", server.createMCPToken)
+			r.Delete("/mcp/tokens/{tokenID}", server.revokeMCPToken)
 
 			r.Get("/subjects", server.listSubjects)
 			r.Post("/subjects", server.createSubject)
@@ -88,8 +102,18 @@ func currentUser(r *http.Request) auth.User {
 	return user
 }
 
+// currentUserID 返回当前登录用户 ID。
+//
+// 空 ID 意味着某条数据路由漏挂了 requireAuth 中间件 —— 那会让后续查询失去
+// 租户过滤。目前是靠 user_id 列的 UUID 类型让空串在数据库层报错（fail-closed），
+// 属于运气而非设计，所以这里显式 panic：宁可 500 并留下堆栈，也不要让一个
+// 无过滤的查询有机会执行。panic 会被 chi 的 Recoverer 中间件兜住。
 func currentUserID(r *http.Request) string {
-	return currentUser(r).ID
+	id := currentUser(r).ID
+	if id == "" {
+		panic("currentUserID called without requireAuth middleware")
+	}
+	return id
 }
 
 func bearerToken(r *http.Request) string {

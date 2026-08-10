@@ -20,6 +20,9 @@ struct ReviewCardView: View {
     @State private var revealedTokenIndexes: Set<Int> = []
     @State private var isSubmitting = false
 
+    /// 两种方向唯一的差异：中→英逐词遮挡英文答案；英→中中文翻译直接呈现。
+    private var masksAnswer: Bool { card.cardDirection.masksAnswer }
+
     private var allTokensRevealed: Bool {
         answerMaskTokens.allSatisfy { revealedTokenIndexes.contains($0.index) }
     }
@@ -42,35 +45,40 @@ struct ReviewCardView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-                .padding(.horizontal, 24)
-                .padding(.top, 18)
+                .padding(.horizontal, AppLayout.screenMargin)
+                .padding(.top, AppSpace.md)
 
             if side == .front {
                 frontCard
-                    .padding(.horizontal, 24)
-                    .padding(.top, 34)
+                    .padding(.horizontal, AppLayout.screenMargin)
+                    .padding(.top, AppSpace.xxl)
                     .transition(.opacity.combined(with: .scale(scale: 0.985)))
 
-                Spacer(minLength: 28)
+                Spacer(minLength: AppSpace.xxl)
             } else {
                 ScrollView(showsIndicators: false) {
                     backCard
-                        .padding(.horizontal, 24)
-                        .padding(.top, 28)
-                        .padding(.bottom, 18)
+                        .padding(.horizontal, AppLayout.screenMargin)
+                        .padding(.top, AppSpace.xxl)
+                        .padding(.bottom, AppSpace.lg)
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.985)))
 
                 feedbackBar
-                    .padding(.horizontal, 18)
-                    .padding(.top, 8)
-                    .padding(.bottom, 14)
-                    .background(AppSurface.background)
+                    .padding(.horizontal, AppLayout.screenMargin)
+                    .padding(.top, AppSpace.sm)
+                    .padding(.bottom, AppSpace.md)
+                    .background(AppColor.surfaceBase)
+                    .overlay(alignment: .top) {
+                        Rectangle()
+                            .fill(AppColor.separator)
+                            .frame(height: AppLayout.separatorHeight)
+                    }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(AppSurface.background.ignoresSafeArea())
-        .animation(.easeInOut(duration: 0.18), value: side)
+        .background(AppColor.surfaceBase.ignoresSafeArea())
+        .animation(AppMotion.standard, value: side)
         .onChange(of: card.id) { _, _ in
             resetCardInteraction()
         }
@@ -79,52 +87,39 @@ struct ReviewCardView: View {
         }
     }
 
+    // 「沉浸式学习会话头」—— 样式 A 的受控变体，全 App 仅此一处：
+    //   与样式 A 同构（左 dismiss + 右溢出操作、同一批 AppIconButton），
+    //   但标题位换成进度药丸、且不用原生导航栏 —— 因为卡面需要占满整屏高度。
+    //   离开会话是"关闭"而非"返回"，故用 xmark。
     private var header: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: AppSpace.sm) {
             ZStack {
                 progressPill
 
                 HStack {
-                    Button {
-                        onClose()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(AppSurface.text)
-                            .frame(width: 44, height: 44)
-                            .background(AppSurface.cardSubtle)
-                            .clipShape(Circle())
-                            .overlay(
-                                Circle()
-                                    .stroke(AppSurface.line, lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Back")
+                    AppIconButton(icon: AppIcon.close, style: .plain, action: onClose)
+                        .accessibilityLabel("Close session")
 
                     Spacer()
 
                     moreButton
                 }
             }
-            .frame(height: 44)
+            .frame(height: AppLayout.minHitTarget)
 
             Text(contextText)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(AppSurface.muted)
+                .appText(AppType.caption, color: AppColor.textTertiary)
                 .lineLimit(1)
         }
     }
 
     private var progressPill: some View {
         Text(progressText)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(AppSurface.accent)
+            .appText(AppType.label, color: AppColor.primaryOnSoft)
             .monospacedDigit()
-            .padding(.horizontal, 13)
-            .frame(height: 32)
-            .background(AppSurface.accentSoft)
-            .clipShape(Capsule())
+            .padding(.horizontal, AppSpace.md)
+            .frame(height: AppLayout.buttonHeightSmall)
+            .background(AppColor.primarySoft, in: Capsule())
     }
 
     private var moreButton: some View {
@@ -147,16 +142,17 @@ struct ReviewCardView: View {
             }
             .disabled(isSubmitting)
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(AppSurface.text)
-                .frame(width: 44, height: 44)
-                .background(AppSurface.cardSubtle)
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(AppSurface.line, lineWidth: 1)
-                )
+            Circle()
+                .fill(AppColor.surface)
+                .overlay { Circle().strokeBorder(AppColor.border, lineWidth: AppLayout.hairline) }
+                .frame(width: AppLayout.navIconButton, height: AppLayout.navIconButton)
+                .overlay {
+                    Image(systemName: AppIcon.more)
+                        .font(AppIcon.font(AppLayout.iconMD))
+                        .foregroundStyle(AppColor.iconDefault)
+                }
+                .frame(width: AppLayout.minHitTarget, height: AppLayout.minHitTarget)
+                .contentShape(Circle())
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -169,25 +165,24 @@ struct ReviewCardView: View {
         } label: {
             FlashcardSurface {
                 VStack(alignment: .leading, spacing: 0) {
-                    Spacer(minLength: 82)
+                    Spacer(minLength: AppSpace.giant)
 
+                    // 长句自动缩放而非按方向切字号 —— 溢出取决于文本长度，与方向无关
                     Text(card.frontText)
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundStyle(AppSurface.text)
-                        .lineSpacing(7)
+                        .appText(AppType.title1)
+                        .minimumScaleFactor(0.68)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Spacer(minLength: 78)
+                    Spacer(minLength: AppSpace.giant)
 
                     Text("Tap to reveal")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(AppSurface.muted)
+                        .appText(AppType.label, color: AppColor.textTertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(28)
-                .frame(maxWidth: .infinity, minHeight: 470, alignment: .topLeading)
+                .padding(AppSpace.xl)
+                .frame(maxWidth: .infinity, minHeight: 440, alignment: .topLeading)
             }
         }
         .buttonStyle(.plain)
@@ -195,7 +190,7 @@ struct ReviewCardView: View {
     }
 
     private var backCard: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: AppLayout.cardGap) {
             maskedAnswerCard
             grammarHintCard
         }
@@ -204,64 +199,80 @@ struct ReviewCardView: View {
     private var maskedAnswerCard: some View {
         FlashcardSurface {
             VStack(alignment: .leading, spacing: 0) {
-                FlowLayout(spacing: 6, lineSpacing: 12) {
-                    ForEach(answerMaskTokens) { token in
-                        Button {
-                            revealedTokenIndexes.insert(token.index)
-                        } label: {
-                            answerTokenView(token)
+                if !masksAnswer {
+                    plainAnswerText
+                } else {
+                    FlowLayout(spacing: AppLayout.answerTokenGap, lineSpacing: AppSpace.md) {
+                        ForEach(answerMaskTokens) { token in
+                            Button {
+                                revealedTokenIndexes.insert(token.index)
+                            } label: {
+                                answerTokenView(token)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(revealedTokenIndexes.contains(token.index) ? token.text : "Reveal word")
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(revealedTokenIndexes.contains(token.index) ? token.text : "Reveal word")
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: 92, alignment: .center)
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 24)
-            .padding(.bottom, 50)
+            .frame(maxWidth: .infinity, minHeight: 92, alignment: .center)
+            .padding(.horizontal, AppSpace.xl)
+            .padding(.top, AppSpace.xxl)
+            .padding(.bottom, AppSpace.giant)
             .frame(maxWidth: .infinity, minHeight: 144, alignment: .topLeading)
             .overlay(alignment: .bottomTrailing) {
+                // 不遮挡时没有"揭示"这个动作，按钮无意义
+                if masksAnswer {
                 Button {
                     revealAllTokens()
                 } label: {
                     Image(systemName: allTokensRevealed ? "eye.fill" : "eye")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(AppSurface.muted.opacity(allTokensRevealed ? 0.58 : 1))
-                        .frame(width: 34, height: 30)
+                        .font(AppIcon.font(AppLayout.iconMD))
+                        .foregroundStyle(allTokensRevealed ? AppColor.disabledIcon : AppColor.iconDefault)
+                        .frame(width: AppLayout.minHitTarget, height: AppLayout.minHitTarget)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(allTokensRevealed)
-                .padding(.trailing, 18)
-                .padding(.bottom, 16)
+                .padding(.trailing, AppSpace.sm)
+                .padding(.bottom, AppSpace.sm)
                 .accessibilityLabel("Reveal full answer")
+                }
             }
         }
+    }
+
+    /// 英→中：翻译直接呈现，无遮挡、无交互。
+    private var plainAnswerText: some View {
+        Text(card.answerText)
+            .appText(AppType.title2)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func answerTokenView(_ token: AnswerToken) -> some View {
         let isRevealed = revealedTokenIndexes.contains(token.index)
         let tokenText = Text(token.text)
-            .font(.system(size: 18, weight: .medium))
+            .font(.system(size: AppType.title2.size, weight: AppType.body.weight))
 
         return ZStack {
             tokenText
                 .foregroundStyle(.clear)
-                .padding(.vertical, 2)
-                .padding(.horizontal, 1)
+                .padding(.vertical, AppSpace.xs / 2)
                 .background {
                     if !isRevealed {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color(hex: 0xE8ECEA))
+                        AppRadius.shape(AppRadius.sm)
+                            .fill(AppColor.neutral200)
                     }
                 }
 
             if isRevealed {
                 tokenText
-                    .foregroundStyle(AppSurface.text)
+                    .foregroundStyle(AppColor.textPrimary)
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(AppRadius.shape(AppRadius.sm))
     }
 
     private var grammarHintCard: some View {
@@ -269,58 +280,52 @@ struct ReviewCardView: View {
             Group {
                 if card.grammarPhrases.isEmpty {
                     Text("No phrase notes for this card.")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(AppSurface.muted)
+                        .appText(AppType.body, color: AppColor.textTertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(card.grammarPhrases) { phrase in
-                            VStack(alignment: .leading, spacing: 6) {
+                            VStack(alignment: .leading, spacing: AppSpace.xs) {
                                 Text(phrase.text)
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(AppSurface.textSecondary)
-                                    .lineSpacing(2)
+                                    .appText(AppType.headline)
                                     .fixedSize(horizontal: false, vertical: true)
 
                                 Text(phrase.note)
-                                    .font(.system(size: 14, weight: .regular))
-                                    .foregroundStyle(AppSurface.muted)
-                                    .lineSpacing(2)
+                                    .appText(AppType.body, color: AppColor.textTertiary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 12)
+                            .padding(.vertical, AppSpace.md)
                         }
                     }
                 }
             }
-            .padding(.horizontal, 22)
-            .padding(.vertical, 18)
+            .padding(.horizontal, AppSpace.xl)
+            .padding(.vertical, AppSpace.lg)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
 
     private var feedbackBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: AppSpace.sm) {
             ForEach(Rating.allCases, id: \.rawValue) { rating in
                 Button {
                     Task {
                         await submit(rating)
                     }
                 } label: {
-                    VStack(spacing: 4) {
+                    VStack(spacing: AppSpace.xs / 2) {
                         Text(rating.title)
-                            .font(.system(size: 14, weight: .bold))
+                            .appTextMetrics(AppType.label)
                             .lineLimit(1)
                             .minimumScaleFactor(0.78)
 
                         Text(intervalText(for: rating))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(intervalForeground(for: rating))
+                            .appTextMetrics(AppType.caption)
                             .monospacedDigit()
                             .lineLimit(1)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 58)
+                    .frame(maxWidth: .infinity, minHeight: AppLayout.buttonHeightLarge)
                 }
                 .disabled(isSubmitting || preview(for: rating) == nil)
                 .buttonStyle(FeedbackButtonStyle(rating: rating))
@@ -337,19 +342,6 @@ struct ReviewCardView: View {
             return "..."
         }
         return ReviewIntervalFormatter.string(seconds: intervalSeconds)
-    }
-
-    private func intervalForeground(for rating: Rating) -> Color {
-        switch rating {
-        case .again:
-            return Color(hex: 0xBE123C)
-        case .hard:
-            return AppSurface.amber
-        case .good:
-            return AppSurface.slateLight
-        case .easy:
-            return AppSurface.green
-        }
     }
 
     private func resetCardInteraction() {
@@ -384,18 +376,14 @@ struct ReviewCardView: View {
     }
 }
 
+/// 卡面容器。改造前是暖米色 #FFFCF7 + #F1E7D8 描边 —— 旧配色主题的残留，
+/// 等于全 App 第四套表面色。现归入标准 surface + border。
 private struct FlashcardSurface<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
         content
-            .background(Color(hex: 0xFFFCF7))
-            .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 34, style: .continuous)
-                    .stroke(Color(hex: 0xF1E7D8), lineWidth: 1)
-            )
-            .shadow(color: AppSurface.shadow.opacity(0.08), radius: 18, x: 0, y: 12)
+            .appSurface(.card, fill: AppColor.surface, radius: AppRadius.xl)
     }
 }
 
@@ -404,55 +392,43 @@ private struct FeedbackButtonStyle: ButtonStyle {
     let rating: Rating
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(foreground.opacity(isEnabled ? 1 : 0.46))
-            .background(background.opacity(isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.52))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(stroke.opacity(isEnabled ? 1 : 0.5), lineWidth: 1)
-            )
-            .shadow(color: isEnabled ? shadow : .clear, radius: 18, x: 0, y: 8)
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
-            .animation(.spring(response: 0.22, dampingFraction: 0.86), value: configuration.isPressed)
+        let shape = AppRadius.shape(AppRadius.md)
+        return configuration.label
+            .foregroundStyle(foreground)
+            .background(background(pressed: configuration.isPressed), in: shape)
+            .overlay {
+                if stroke != .clear {
+                    shape.strokeBorder(stroke, lineWidth: AppLayout.hairline)
+                }
+            }
+            .scaleEffect(configuration.isPressed ? AppMotion.pressScale : 1)
+            .animation(AppMotion.instant, value: configuration.isPressed)
     }
 
+    /// good 是推荐动作 → 唯一使用 primary 的一档；其余走语义色的 *Text 变体（均 ≥5.4:1）
     private var foreground: Color {
-        rating == .good ? .white : foregroundColor
+        guard isEnabled else { return AppColor.disabledText }
+        switch rating {
+        case .again: return AppColor.dangerText
+        case .hard:  return AppColor.warningText
+        case .good:  return AppColor.onPrimary
+        case .easy:  return AppColor.successText
+        }
     }
 
-    private var background: Color {
+    private func background(pressed: Bool) -> Color {
+        guard isEnabled else { return AppColor.disabledFill }
         switch rating {
-        case .again:
-            return AppSurface.roseSoft
-        case .hard:
-            return Color(hex: 0xFFF7ED)
-        case .good:
-            return AppSurface.dark
-        case .easy:
-            return Color(hex: 0xECFDF5)
+        case .again: return pressed ? AppColor.surfacePressed : AppColor.dangerSoft
+        case .hard:  return pressed ? AppColor.surfacePressed : AppColor.warningSoft
+        case .good:  return pressed ? AppColor.primaryPressed : AppColor.primary
+        case .easy:  return pressed ? AppColor.surfacePressed : AppColor.successSoft
         }
     }
 
     private var stroke: Color {
-        rating == .good ? .clear : AppSurface.line
-    }
-
-    private var shadow: Color {
-        rating == .good ? AppSurface.dark.opacity(0.14) : AppSurface.shadow.opacity(0.05)
-    }
-
-    private var foregroundColor: Color {
-        switch rating {
-        case .again:
-            return Color(hex: 0x9F1239)
-        case .hard:
-            return Color(hex: 0x92400E)
-        case .good:
-            return .white
-        case .easy:
-            return Color(hex: 0x047857)
-        }
+        guard isEnabled else { return AppColor.disabledBorder }
+        return rating == .good ? .clear : AppColor.border
     }
 }
 

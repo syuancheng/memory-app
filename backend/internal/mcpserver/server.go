@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"memory-app/backend/internal/db"
 	"memory-app/backend/internal/model"
@@ -27,7 +28,16 @@ type ServerConfig struct {
 	AllowedHosts   []string
 	AllowedOrigins []string
 	JSONResponse   bool
+	AllowDemoToken bool
 	OAuthServer    *OAuthServer
+	// PersonalTokens 用个人访问令牌换取真实 userID。
+	// 没有它，MCP 只能靠静态 token 落到 demo 账号。
+	PersonalTokens PersonalTokenResolver
+}
+
+// PersonalTokenResolver 由 auth.Service 实现。
+type PersonalTokenResolver interface {
+	UserIDForMCPToken(ctx context.Context, token string) (string, bool)
 }
 
 func NewHTTPHandler(pool *pgxpool.Pool, cfg ServerConfig) http.Handler {
@@ -35,7 +45,7 @@ func NewHTTPHandler(pool *pgxpool.Pool, cfg ServerConfig) http.Handler {
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return server
 	}, &mcp.StreamableHTTPOptions{JSONResponse: cfg.JSONResponse})
-	return withHostValidation(cfg.AllowedHosts, withCORS(cfg.AllowedOrigins, withAuth(cfg.AuthToken, cfg.OAuthServer, handler)))
+	return withHostValidation(cfg.AllowedHosts, withCORS(cfg.AllowedOrigins, withAuth(cfg.AuthToken, cfg.OAuthServer, cfg.PersonalTokens, cfg.AllowDemoToken, handler)))
 }
 
 func NewServer(pool *pgxpool.Pool) *mcp.Server {
@@ -157,8 +167,8 @@ type AddCardInput struct {
 	FrontText      string          `json:"front_text" jsonschema:"front prompt, usually Chinese"`
 	AnswerText     string          `json:"answer_text" jsonschema:"English answer sentence"`
 	GrammarPhrases []GrammarPhrase `json:"grammar_phrases,omitempty" jsonschema:"phrase, grammar, or vocabulary hints"`
-	CardType       string          `json:"card_type,omitempty" jsonschema:"card type: speaking_expression, grammar, or sentence"`
-	Direction      string          `json:"direction,omitempty" jsonschema:"card direction; defaults to zh_to_en"`
+	CardType       string          `json:"card_type,omitempty" jsonschema:"card type: word or sentence; defaults to sentence"`
+	Direction      string          `json:"direction,omitempty" jsonschema:"ignored; direction is derived from front_text"`
 }
 
 type GrammarPhrase struct {
@@ -263,10 +273,12 @@ func (t *Tools) DeleteCard(ctx context.Context, _ *mcp.CallToolRequest, input De
 		return nil, DeleteCardOutput{}, errors.New("card not found")
 	}
 
+	// 纵深防御，同 REST 侧 deleteCard
 	_, err = t.pool.Exec(ctx, `
 		UPDATE review_states SET status = 'deleted'
 		WHERE card_id = $1
-	`, cardID)
+		  AND EXISTS (SELECT 1 FROM cards WHERE id = $1 AND user_id = $2)
+	`, cardID, userID)
 	if err != nil {
 		return nil, DeleteCardOutput{}, err
 	}
@@ -354,12 +366,8 @@ func (t *Tools) createCard(ctx context.Context, userID string, input AddCardInpu
 	if input.AnswerText == "" {
 		return model.Card{}, errors.New("answer_text is required")
 	}
-	if input.CardType == "" {
-		input.CardType = "speaking_expression"
-	}
-	if input.Direction == "" {
-		input.Direction = "zh_to_en"
-	}
+	input.CardType = service.NormalizeCardType(input.CardType)
+	input.Direction = service.DetectDirection(input.FrontText)
 
 	cardID := uuid.NewString()
 	grammarPhrases := make([]model.GrammarPhrase, 0, len(input.GrammarPhrases))
@@ -378,7 +386,7 @@ func (t *Tools) createCard(ctx context.Context, userID string, input AddCardInpu
 	if err != nil {
 		return model.Card{}, err
 	}
-	tokensJSON, err := model.TokensJSON(service.TokenizeAnswer(input.AnswerText))
+	tokensJSON, err := model.TokensJSON(service.TokenizeAnswer(input.AnswerText, input.Direction))
 	if err != nil {
 		return model.Card{}, err
 	}
@@ -524,29 +532,45 @@ func (t *Tools) loadCardTags(ctx context.Context, userID string, cardID string) 
 	return tags, rows.Err()
 }
 
-func withAuth(token string, oauthServer *OAuthServer, next http.Handler) http.Handler {
-	if token == "" && oauthServer == nil {
+func withAuth(token string, oauthServer *OAuthServer, personal PersonalTokenResolver, allowDemo bool, next http.Handler) http.Handler {
+	if token == "" && oauthServer == nil && personal == nil {
+		if !allowDemo {
+			// 完全没有配置任何认证方式时，拒绝服务而不是把所有人放进 demo 租户。
+			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				http.Error(w, "server has no authentication configured", http.StatusUnauthorized)
+			})
+		}
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 		headerToken := strings.TrimSpace(r.Header.Get("X-Memory-Mcp-Token"))
-		if token != "" && (bearer == token || headerToken == token) {
-			ctx := context.WithValue(r.Context(), mcpUserIDKey{}, db.DemoUserID)
-			next.ServeHTTP(w, r.WithContext(ctx))
+
+		// 个人访问令牌优先：它能解析出真实 userID，是唯一能把卡片写进
+		// 自己账号的方式。
+		if personal != nil {
+			for _, candidate := range []string{bearer, headerToken} {
+				if candidate == "" {
+					continue
+				}
+				if userID, ok := personal.UserIDForMCPToken(r.Context(), candidate); ok {
+					serveWithUser(w, r, next, userID)
+					return
+				}
+			}
+		}
+
+		// 静态 MEMORY_MCP_TOKEN 是分发给客户端的**共享**凭据，所有持有者都会
+		// 落到同一个 demo 租户里互相可见可删，因此默认关闭，需显式打开。
+		if allowDemo && token != "" && (bearer == token || headerToken == token) {
+			serveWithUser(w, r, next, db.DemoUserID)
 			return
 		}
 		if oauthServer != nil {
 			if userID, ok := oauthServer.ValidAccessToken(bearer); ok {
-				ctx := context.WithValue(r.Context(), mcpUserIDKey{}, userID)
-				next.ServeHTTP(w, r.WithContext(ctx))
+				serveWithUser(w, r, next, userID)
 				return
 			}
-		}
-		if token == "" && oauthServer == nil {
-			ctx := context.WithValue(r.Context(), mcpUserIDKey{}, db.DemoUserID)
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
 		}
 		if oauthServer != nil {
 			oauthServer.WriteUnauthorized(w)
@@ -554,6 +578,73 @@ func withAuth(token string, oauthServer *OAuthServer, next http.Handler) http.Ha
 		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	})
+}
+
+// sessionOwners 记录每个 MCP 会话建立时绑定的 userID。
+//
+// MCP SDK 把 tool handler 的 context 固定成**发起 initialize 那次请求**的
+// context，后续请求即便换了凭据也不会改变工具实际使用的身份。若不加校验，
+// 知道他人 Mcp-Session-Id 的人只要自己持有任意合法凭据，发出的 tool 调用
+// 就会以对方身份执行。这里显式校验「会话归属」与「本次请求身份」一致。
+var sessionOwners sync.Map // sessionID(string) -> userID(string)
+
+func serveWithUser(w http.ResponseWriter, r *http.Request, next http.Handler, userID string) {
+	// 已有会话：本次请求的身份必须与建立会话时一致。
+	if sessionID := strings.TrimSpace(r.Header.Get("Mcp-Session-Id")); sessionID != "" {
+		owner, ok := sessionOwners.Load(sessionID)
+		if !ok {
+			// 服务重启会丢失绑定表。此时无法确认归属，拒绝并要求重新握手，
+			// 而不是信任一个来历不明的 session id。
+			http.Error(w, "unknown session, please reinitialize", http.StatusNotFound)
+			return
+		}
+		if owner.(string) != userID {
+			http.Error(w, "session does not belong to this credential", http.StatusForbidden)
+			return
+		}
+		ctx := context.WithValue(r.Context(), mcpUserIDKey{}, userID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+		return
+	}
+
+	// 新会话（initialize）：session id 由 SDK 写在**响应头**里，
+	// 必须在这里捕获并绑定到当前身份，否则攻击者的后续请求会抢先建立绑定。
+	recorder := &sessionCapturingWriter{ResponseWriter: w, userID: userID}
+	ctx := context.WithValue(r.Context(), mcpUserIDKey{}, userID)
+	next.ServeHTTP(recorder, r.WithContext(ctx))
+}
+
+type sessionCapturingWriter struct {
+	http.ResponseWriter
+	userID string
+	bound  bool
+}
+
+func (w *sessionCapturingWriter) bind() {
+	if w.bound {
+		return
+	}
+	if sessionID := strings.TrimSpace(w.Header().Get("Mcp-Session-Id")); sessionID != "" {
+		sessionOwners.Store(sessionID, w.userID)
+		w.bound = true
+	}
+}
+
+func (w *sessionCapturingWriter) WriteHeader(status int) {
+	w.bind()
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *sessionCapturingWriter) Write(b []byte) (int, error) {
+	w.bind()
+	return w.ResponseWriter.Write(b)
+}
+
+// Flush 让 SSE 流式响应继续可用（SDK 默认走 text/event-stream）。
+func (w *sessionCapturingWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func userIDFromContext(ctx context.Context) (string, error) {

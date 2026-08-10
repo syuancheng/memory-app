@@ -42,6 +42,27 @@ struct AnswerToken: Identifiable, Codable, Hashable {
     let index: Int
 }
 
+/// 卡片方向。**唯一作用是决定背面答案要不要遮挡**，除此之外两种卡完全一样。
+/// 方向不由用户选择，由正面文本自动识别（与后端 service.DetectDirection 同规则）。
+enum CardDirection: String, Hashable {
+    /// 正面中文提示 → 背面英文答案，逐词遮挡（练产出）
+    case zhToEn = "zh_to_en"
+    /// 正面英文句子 → 背面中文翻译，直接呈现（练理解，遮中文没有意义）
+    case enToZh = "en_to_zh"
+
+    init(rawValueOrDefault raw: String?) {
+        self = CardDirection(rawValue: (raw ?? "").trimmingCharacters(in: .whitespaces)) ?? .zhToEn
+    }
+
+    /// 正面含汉字即视为中文提示
+    static func detected(fromFront frontText: String) -> CardDirection {
+        frontText.unicodeScalars.contains { $0.properties.isIdeographic } ? .zhToEn : .enToZh
+    }
+
+    /// 背面答案是否遮挡。这是两种方向唯一的行为差异。
+    var masksAnswer: Bool { self == .zhToEn }
+}
+
 struct ReviewCard: Identifiable, Codable, Hashable {
     let id: String
     let subjectID: String
@@ -55,6 +76,9 @@ struct ReviewCard: Identifiable, Codable, Hashable {
     let answerTokens: [AnswerToken]
     let createdAt: String
     let updatedAt: String
+
+    /// 解析后的方向；未知值回落 zh_to_en，与后端 NormalizeDirection 行为一致
+    var cardDirection: CardDirection { CardDirection(rawValueOrDefault: direction) }
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -130,6 +154,24 @@ struct ReviewGradePreview: Identifiable, Codable, Hashable {
     }
 }
 
+/// MCP 个人访问令牌。`token` 明文**只在创建时返回一次**，之后服务端只存哈希、不可恢复。
+struct MCPToken: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let createdAt: String
+    let lastUsedAt: String?
+    /// 仅创建接口返回；列表接口为 nil
+    let token: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case createdAt = "created_at"
+        case lastUsedAt = "last_used_at"
+        case token
+    }
+}
+
 struct MeSummary: Codable {
     let user: MeUser
     let totalCards: Int
@@ -169,10 +211,26 @@ struct MeUser: Codable, Hashable {
 struct AuthResponse: Codable, Hashable {
     let user: MeUser
     let sessionToken: String?
+    /// 本次验证码登录顺带创建了账号 —— 客户端据此引导设置密码。
+    let isNewUser: Bool
+    /// 该账号是否已设过密码，决定是否展示「用密码登录」入口。
+    let hasPassword: Bool
 
     enum CodingKeys: String, CodingKey {
         case user
         case sessionToken = "session_token"
+        case isNewUser = "is_new_user"
+        case hasPassword = "has_password"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        user = try c.decode(MeUser.self, forKey: .user)
+        sessionToken = try c.decodeIfPresent(String.self, forKey: .sessionToken)
+        // 两个字段是后加的；缺失时按「老账号、无密码」处理，
+        // 避免旧后端或 PATCH /account 这类不返回它们的响应解码失败。
+        isNewUser = try c.decodeIfPresent(Bool.self, forKey: .isNewUser) ?? false
+        hasPassword = try c.decodeIfPresent(Bool.self, forKey: .hasPassword) ?? false
     }
 }
 
