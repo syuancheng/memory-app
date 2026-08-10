@@ -20,7 +20,10 @@ func FromEnv() Config {
 		Port:        env("PORT", "8080"),
 		AppEnv:      env("APP_ENV", "development"),
 		Auth: auth.Config{
-			TokenSecret: env("AUTH_TOKEN_SECRET", env("MEMORY_MCP_OAUTH_TOKEN_SECRET", "development-auth-secret")),
+			// 不设兜底值。曾经回落到硬编码的 "development-auth-secret"，
+			// 意味着生产忘配也会静默启动，并用一个公开在源码里的密钥签发全部
+			// session token 与验证码哈希。缺失时宁可启动失败。
+			TokenSecret: strings.TrimSpace(os.Getenv("AUTH_TOKEN_SECRET")),
 			DevCodeLog:  envBool("AUTH_DEV_CODE_LOG", false),
 			SMTP: auth.SMTPConfig{
 				Host: strings.TrimSpace(os.Getenv("SMTP_HOST")),
@@ -54,5 +57,12 @@ func envBool(key string, fallback bool) bool {
 	if value == "" {
 		return fallback
 	}
-	return value == "1" || value == "true" || value == "yes"
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }

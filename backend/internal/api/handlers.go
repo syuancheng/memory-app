@@ -574,10 +574,13 @@ func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "card not found")
 		return
 	}
+	// 纵深防御：上面的 UPDATE cards 已带 user_id 且校验过 RowsAffected，
+	// 但这条不在同一事务里，补一次归属校验（写法同 masterCard）。
 	_, err = s.db.Exec(r.Context(), `
 		UPDATE review_states SET status = 'deleted'
 		WHERE card_id = $1
-	`, chi.URLParam(r, "cardID"))
+		  AND EXISTS (SELECT 1 FROM cards WHERE id = $1 AND user_id = $2)
+	`, chi.URLParam(r, "cardID"), userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

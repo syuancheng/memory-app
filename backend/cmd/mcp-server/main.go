@@ -17,6 +17,9 @@ import (
 
 func main() {
 	cfg := mcpserver.FromEnv()
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("invalid configuration: %v", err)
+	}
 	ctx := context.Background()
 
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
@@ -57,6 +60,7 @@ func main() {
 		AllowedHosts:   cfg.AllowedHosts,
 		AllowedOrigins: cfg.AllowedOrigins,
 		JSONResponse:   cfg.JSONResponse,
+		AllowDemoToken: cfg.AllowDemoToken,
 		OAuthServer:    oauthServer,
 		PersonalTokens: authService,
 	})

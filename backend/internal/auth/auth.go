@@ -303,7 +303,7 @@ func (s *Service) FindUserByID(ctx context.Context, userID string) (User, error)
 	var user User
 	err := s.pool.QueryRow(ctx, `
 		SELECT u.id::text, COALESCE(u.primary_email, u.email), COALESCE(u.display_name, u.name, ''), COALESCE(ac.provider, 'email')
-		FROM users
+		FROM users u
 		LEFT JOIN account_connections ac ON ac.user_id = u.id AND ac.provider = 'apple'
 		WHERE u.id = $1 AND u.deleted_at IS NULL AND u.status = 'active'
 	`, userID).Scan(&user.ID, &user.Email, &user.Name, &user.Provider)
