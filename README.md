@@ -2,6 +2,9 @@
 
 AI flashcards for active recall.
 
+Backend internals — architecture, API reference, auth, MCP — are documented in
+[`docs/`](docs/). This file covers setup and configuration.
+
 Monorepo for the MVP:
 
 - `backend`: Go REST API with PostgreSQL storage and simple review scheduling
