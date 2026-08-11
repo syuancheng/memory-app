@@ -82,7 +82,7 @@ private struct CardsRootPage: View {
                         )
                     }
                 }
-                
+
             }
         }
         .navigationDestination(item: $selectedSubject) { subject in
@@ -276,7 +276,7 @@ private struct SubjectSetsPage: View {
                         )
                     }
                 }
-                
+
             }
         }
         .navigationDestination(item: $selectedSet) { set in
@@ -438,7 +438,7 @@ private struct SetCardsPage: View {
                         )
                     }
                 }
-                
+
             }
         }
         .task {
