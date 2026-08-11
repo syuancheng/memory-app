@@ -127,7 +127,7 @@ struct MeView: View {
                 AppRowSeparator()
 
                 NavigationLink(value: MeDestination.mcpAccess) {
-                    AppListRow(title: "MCP Access", icon: "terminal")
+                    AppListRow(title: "Connect ChatGPT", icon: "sparkles")
                 }
                 .buttonStyle(.plain)
             }
@@ -479,21 +479,192 @@ private struct DeleteAccountCodeSheet: View {
 /// 存在的理由：MCP 的静态 MEMORY_MCP_TOKEN 一律映射到 demo 用户，
 /// 通过它创建的卡片进不了自己的账号。个人令牌把 token 绑定到当前登录用户。
 private struct MCPAccessPage: View {
+    private let mcpServerURL = ProcessInfo.processInfo.environment["MEMORY_MCP_SERVER_URL"] ?? "https://mcp.siyuancheng.com/mcp"
+    private let chatGPTURL = URL(string: "https://chatgpt.com/")
+    private let oauthClientID = "recall-deck-chatgpt"
+    private let oauthScopes = "recall.cards.read recall.cards.write"
+
     @State private var tokens: [MCPToken] = []
     @State private var freshToken: String?
     @State private var isLoading = false
     @State private var isCreating = false
     @State private var errorMessage: String?
     @State private var revoking: MCPToken?
-    @State private var copied = false
+    @State private var copiedServerURL = false
+    @State private var copiedOAuthSettings = false
+    @State private var copiedToken = false
+    @State private var showingAdvancedTokens = false
+
+    private var mcpOrigin: String {
+        guard let url = URL(string: mcpServerURL),
+              let scheme = url.scheme,
+              let host = url.host else {
+            return "https://mcp.siyuancheng.com"
+        }
+        if let port = url.port {
+            return "\(scheme)://\(host):\(port)"
+        }
+        return "\(scheme)://\(host)"
+    }
+
+    private var authorizationURL: String {
+        "\(mcpOrigin)/oauth/authorize"
+    }
+
+    private var tokenURL: String {
+        "\(mcpOrigin)/oauth/token"
+    }
+
+    private var oauthSettingsText: String {
+        """
+        Server URL: \(mcpServerURL)
+        Authentication: OAuth
+        Registration method: User-Defined OAuth Client
+        Authorization URL: \(authorizationURL)
+        Token URL: \(tokenURL)
+        OAuth Client ID: \(oauthClientID)
+        OAuth Client Secret: leave empty
+        Token endpoint auth method: none
+        Scopes: \(oauthScopes)
+        """
+    }
 
     var body: some View {
-        MePageScaffold(title: "MCP Access") {
+        MePageScaffold(title: "Connect ChatGPT") {
+            AppCard {
+                VStack(alignment: .leading, spacing: AppSpace.md) {
+                    VStack(alignment: .leading, spacing: AppSpace.sm) {
+                        Text("Use Cardly in ChatGPT")
+                            .appText(AppType.headline)
+                        Text("Add this MCP server URL in ChatGPT. Choose OAuth when asked to sign in, then authorize Cardly with your account.")
+                            .appText(AppType.body, color: AppColor.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    VStack(alignment: .leading, spacing: AppSpace.xs) {
+                        Text("MCP Server URL")
+                            .appText(AppType.label, color: AppColor.textTertiary)
+                        Text(mcpServerURL)
+                            .appText(AppType.body)
+                            .monospaced()
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(AppSpace.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppColor.surfaceSunken, in: AppRadius.shape(AppRadius.md))
+
+                    HStack(spacing: AppSpace.sm) {
+                        AppButton(
+                            title: copiedServerURL ? "Copied" : "Copy URL",
+                            icon: copiedServerURL ? "checkmark" : "doc.on.doc",
+                            variant: .secondary,
+                            size: .medium,
+                            fullWidth: true
+                        ) {
+                            UIPasteboard.general.string = mcpServerURL
+                            copiedServerURL = true
+                        }
+
+                        if let chatGPTURL {
+                            AppButton(
+                                title: "Open ChatGPT",
+                                icon: "arrow.up.right",
+                                variant: .primary,
+                                size: .medium,
+                                fullWidth: true
+                            ) {
+                                UIApplication.shared.open(chatGPTURL)
+                            }
+                        }
+                    }
+                }
+            }
+
             AppCard {
                 VStack(alignment: .leading, spacing: AppSpace.sm) {
-                    Text("Connect an MCP client")
+                    Text("Recommended setup")
                         .appText(AppType.headline)
-                    Text("Generate a token, then paste it into ChatGPT or Claude as the Authorization bearer for this app's MCP endpoint. Cards created there land in your account.")
+                    Text("In ChatGPT, create a custom MCP connector, paste the server URL, select OAuth, then sign in on the Cardly authorization page. If ChatGPT asks for Advanced OAuth settings, use the fields below.")
+                        .appText(AppType.body, color: AppColor.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            AppCard {
+                VStack(alignment: .leading, spacing: AppSpace.md) {
+                    VStack(alignment: .leading, spacing: AppSpace.sm) {
+                        Text("Advanced OAuth settings")
+                            .appText(AppType.headline)
+                        Text("Use these only if ChatGPT does not discover OAuth automatically after you paste the Server URL.")
+                            .appText(AppType.body, color: AppColor.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    VStack(spacing: AppSpace.sm) {
+                        oauthSettingRow(title: "Registration method", value: "User-Defined OAuth Client")
+                        oauthSettingRow(title: "Authorization URL", value: authorizationURL)
+                        oauthSettingRow(title: "Token URL", value: tokenURL)
+                        oauthSettingRow(title: "OAuth Client ID", value: oauthClientID)
+                        oauthSettingRow(title: "OAuth Client Secret", value: "Leave empty")
+                        oauthSettingRow(title: "Token endpoint auth method", value: "none")
+                        oauthSettingRow(title: "Scopes", value: oauthScopes)
+                    }
+
+                    AppButton(
+                        title: copiedOAuthSettings ? "Copied settings" : "Copy OAuth settings",
+                        icon: copiedOAuthSettings ? "checkmark" : "doc.on.doc",
+                        variant: .secondary,
+                        size: .medium,
+                        fullWidth: true
+                    ) {
+                        UIPasteboard.general.string = oauthSettingsText
+                        copiedOAuthSettings = true
+                    }
+                }
+            }
+
+            AppButton(
+                title: showingAdvancedTokens ? "Hide advanced token access" : "Advanced token access",
+                icon: showingAdvancedTokens ? "chevron.up" : "chevron.down",
+                variant: .ghost,
+                size: .medium,
+                fullWidth: true
+            ) {
+                withAnimation(AppMotion.standard) {
+                    showingAdvancedTokens.toggle()
+                }
+            }
+
+            if showingAdvancedTokens {
+                advancedTokenSection
+            }
+        }
+        .task { await load() }
+    }
+
+    private func oauthSettingRow(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: AppSpace.xs) {
+            Text(title)
+                .appText(AppType.label, color: AppColor.textTertiary)
+            Text(value)
+                .appText(AppType.body)
+                .monospaced()
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(AppSpace.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColor.surfaceSunken, in: AppRadius.shape(AppRadius.md))
+    }
+
+    private var advancedTokenSection: some View {
+        VStack(alignment: .leading, spacing: AppSpace.lg) {
+            AppCard {
+                VStack(alignment: .leading, spacing: AppSpace.sm) {
+                    Text("Personal access tokens")
+                        .appText(AppType.headline)
+                    Text("Use tokens only when a client cannot use OAuth. Tokens can read, create, and delete cards in your account.")
                         .appText(AppType.body, color: AppColor.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -516,13 +687,13 @@ private struct MCPAccessPage: View {
                             .appText(AppType.label, color: AppColor.textOnInverseSecondary)
 
                         AppButton(
-                            title: copied ? "Copied" : "Copy token",
+                            title: copiedToken ? "Copied" : "Copy token",
                             variant: .secondary,
                             size: .medium,
                             fullWidth: true
                         ) {
                             UIPasteboard.general.string = freshToken
-                            copied = true
+                            copiedToken = true
                         }
                     }
                 }
@@ -582,7 +753,6 @@ private struct MCPAccessPage: View {
                 }
             }
         }
-        .task { await load() }
     }
 
     private func subtitle(for token: MCPToken) -> String {
@@ -615,7 +785,7 @@ private struct MCPAccessPage: View {
     private func create() async {
         isCreating = true
         errorMessage = nil
-        copied = false
+        copiedToken = false
         do {
             let created = try await APIClient.shared.createMCPToken(name: "MCP client")
             freshToken = created.token
