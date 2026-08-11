@@ -893,25 +893,40 @@ private struct NotificationsPage: View {
 
 private struct AppearancePage: View {
     @AppStorage("meFontSizeChoice") private var fontSizeChoice = FontSizeChoice.medium.rawValue
+    @AppStorage("reviewEnglishVoice") private var englishVoice = ReviewEnglishVoice.american.rawValue
 
     var body: some View {
         MePageScaffold(title: "Appearance") {
             VStack(alignment: .leading, spacing: AppSpace.md) {
                 AppCard {
-                    VStack(alignment: .leading, spacing: AppSpace.md) {
-                        Text("Font Size")
-                            .appText(AppType.label, color: AppColor.textTertiary)
+                    VStack(alignment: .leading, spacing: AppSpace.lg) {
+                        VStack(alignment: .leading, spacing: AppSpace.md) {
+                            Text("Font Size")
+                                .appText(AppType.label, color: AppColor.textTertiary)
 
-                        Picker("Font Size", selection: $fontSizeChoice) {
-                            ForEach(FontSizeChoice.allCases) { choice in
-                                Text(choice.title).tag(choice.rawValue)
+                            Picker("Font Size", selection: $fontSizeChoice) {
+                                ForEach(FontSizeChoice.allCases) { choice in
+                                    Text(choice.title).tag(choice.rawValue)
+                                }
                             }
+                            .pickerStyle(.segmented)
                         }
-                        .pickerStyle(.segmented)
+
+                        VStack(alignment: .leading, spacing: AppSpace.md) {
+                            Text("English Voice")
+                                .appText(AppType.label, color: AppColor.textTertiary)
+
+                            Picker("English Voice", selection: $englishVoice) {
+                                ForEach(ReviewEnglishVoice.allCases) { voice in
+                                    Text(voice.title).tag(voice.rawValue)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                        }
                     }
                 }
 
-                Text("Font size is saved here for now and will apply globally later.")
+                Text("Voice preference applies to answer audio during review.")
                     .appText(AppType.label, color: AppColor.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }

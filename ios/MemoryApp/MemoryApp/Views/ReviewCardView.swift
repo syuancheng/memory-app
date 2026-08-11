@@ -1,8 +1,30 @@
+import AVFoundation
 import SwiftUI
 
 enum CardSide {
     case front
     case back
+}
+
+enum ReviewEnglishVoice: String, CaseIterable, Identifiable {
+    case american
+    case british
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .american: return "American"
+        case .british:  return "British"
+        }
+    }
+
+    var languageCode: String {
+        switch self {
+        case .american: return "en-US"
+        case .british:  return "en-GB"
+        }
+    }
 }
 
 struct ReviewCardView: View {
@@ -19,6 +41,8 @@ struct ReviewCardView: View {
     @State private var side: CardSide = .front
     @State private var revealedTokenIndexes: Set<Int> = []
     @State private var isSubmitting = false
+    @StateObject private var speechManager = SpeechManager.shared
+    @AppStorage("reviewEnglishVoice") private var englishVoice = ReviewEnglishVoice.american.rawValue
 
     /// 两种方向唯一的差异：中→英逐词遮挡英文答案；英→中中文翻译直接呈现。
     private var masksAnswer: Bool { card.cardDirection.masksAnswer }
@@ -84,6 +108,9 @@ struct ReviewCardView: View {
         }
         .onChange(of: resetToken) { _, _ in
             resetCardInteraction()
+        }
+        .onDisappear {
+            stopSpeakingAnswer()
         }
     }
 
@@ -198,54 +225,92 @@ struct ReviewCardView: View {
 
     private var maskedAnswerCard: some View {
         FlashcardSurface {
-            VStack(alignment: .leading, spacing: 0) {
-                if !masksAnswer {
-                    plainAnswerText
-                } else {
-                    FlowLayout(spacing: AppLayout.answerTokenGap, lineSpacing: AppSpace.md) {
-                        ForEach(answerMaskTokens) { token in
-                            Button {
-                                revealedTokenIndexes.insert(token.index)
-                            } label: {
-                                answerTokenView(token)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(revealedTokenIndexes.contains(token.index) ? token.text : "Reveal word")
+            VStack(alignment: .leading, spacing: AppSpace.sm) {
+                HStack {
+                    Spacer()
+
+                    answerCardIconButton(
+                        icon: speechManager.isSpeaking ? "speaker.slash" : "speaker.wave.2",
+                        tint: speechManager.isSpeaking ? AppColor.primary : AppColor.iconDefault,
+                        accessibilityLabel: speechManager.isSpeaking ? "Stop answer audio" : "Play answer audio"
+                    ) {
+                        toggleAnswerSpeech()
+                    }
+                }
+
+                answerContent
+                    .frame(maxWidth: .infinity, minHeight: 92, alignment: .center)
+
+                // 不遮挡时没有"揭示"这个动作，按钮无意义
+                if masksAnswer {
+                    HStack {
+                        Spacer()
+
+                        answerCardIconButton(
+                            icon: "eye",
+                            tint: allTokensRevealed ? AppColor.disabledIcon : AppColor.iconDefault,
+                            accessibilityLabel: "Reveal full answer",
+                            isEnabled: !allTokensRevealed
+                        ) {
+                            revealAllTokens()
                         }
                     }
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 92, alignment: .center)
             .padding(.horizontal, AppSpace.xl)
-            .padding(.top, AppSpace.xxl)
-            .padding(.bottom, AppSpace.giant)
-            .frame(maxWidth: .infinity, minHeight: 144, alignment: .topLeading)
-            .overlay(alignment: .bottomTrailing) {
-                // 不遮挡时没有"揭示"这个动作，按钮无意义
-                if masksAnswer {
-                Button {
-                    revealAllTokens()
-                } label: {
-                    Image(systemName: allTokensRevealed ? "eye.fill" : "eye")
-                        .font(AppIcon.font(AppLayout.iconMD))
-                        .foregroundStyle(allTokensRevealed ? AppColor.disabledIcon : AppColor.iconDefault)
-                        .frame(width: AppLayout.minHitTarget, height: AppLayout.minHitTarget)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(allTokensRevealed)
-                .padding(.trailing, AppSpace.sm)
-                .padding(.bottom, AppSpace.sm)
-                .accessibilityLabel("Reveal full answer")
+            .padding(.top, AppSpace.sm)
+            .padding(.bottom, AppSpace.sm)
+            .frame(maxWidth: .infinity, minHeight: 168, alignment: .topLeading)
+        }
+        .contentShape(AppRadius.shape(AppRadius.xl))
+        .onTapGesture {
+            returnToFront()
+        }
+    }
+
+    @ViewBuilder
+    private var answerContent: some View {
+        if !masksAnswer {
+            plainAnswerText
+        } else {
+            FlowLayout(spacing: AppLayout.answerTokenGap, lineSpacing: AppSpace.md) {
+                ForEach(answerMaskTokens) { token in
+                    Button {
+                        revealedTokenIndexes.insert(token.index)
+                    } label: {
+                        answerTokenView(token)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(revealedTokenIndexes.contains(token.index) ? token.text : "Reveal word")
                 }
             }
         }
     }
 
+    private func answerCardIconButton(
+        icon: String,
+        tint: Color = AppColor.iconDefault,
+        accessibilityLabel: String,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(AppIcon.font(AppLayout.iconSM))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(tint)
+                .frame(width: AppLayout.minHitTarget, height: AppLayout.minHitTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
     /// 英→中：翻译直接呈现，无遮挡、无交互。
     private var plainAnswerText: some View {
         Text(card.answerText)
-            .appText(AppType.title2)
+            .appText(AppType.headline)
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -254,7 +319,7 @@ struct ReviewCardView: View {
     private func answerTokenView(_ token: AnswerToken) -> some View {
         let isRevealed = revealedTokenIndexes.contains(token.index)
         let tokenText = Text(token.text)
-            .font(.system(size: AppType.title2.size, weight: AppType.body.weight))
+            .font(.system(size: AppType.headline.size, weight: AppType.headline.weight))
 
         return ZStack {
             tokenText
@@ -304,6 +369,10 @@ struct ReviewCardView: View {
             .padding(.vertical, AppSpace.lg)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .contentShape(AppRadius.shape(AppRadius.xl))
+        .onTapGesture {
+            returnToFront()
+        }
     }
 
     private var feedbackBar: some View {
@@ -345,6 +414,7 @@ struct ReviewCardView: View {
     }
 
     private func resetCardInteraction() {
+        stopSpeakingAnswer()
         side = .front
         revealedTokenIndexes = []
         isSubmitting = false
@@ -354,6 +424,7 @@ struct ReviewCardView: View {
         guard preview(for: rating) != nil else {
             return
         }
+        stopSpeakingAnswer()
         isSubmitting = true
         await onRate(rating, revealedTokenIndexes.count)
         isSubmitting = false
@@ -363,16 +434,130 @@ struct ReviewCardView: View {
         revealedTokenIndexes.formUnion(answerMaskTokens.map(\.index))
     }
 
+    private func returnToFront() {
+        stopSpeakingAnswer()
+        side = .front
+    }
+
     private func deleteCard() async {
+        stopSpeakingAnswer()
         isSubmitting = true
         await onDelete()
         isSubmitting = false
     }
 
     private func masterCard() async {
+        stopSpeakingAnswer()
         isSubmitting = true
         await onMaster()
         isSubmitting = false
+    }
+
+    private func toggleAnswerSpeech() {
+        let selectedVoice = ReviewEnglishVoice(rawValue: englishVoice) ?? .american
+        speechManager.toggle(card.answerText, voice: selectedVoice)
+    }
+
+    private func stopSpeakingAnswer() {
+        speechManager.stop()
+    }
+}
+
+final class SpeechManager: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+    static let shared = SpeechManager()
+
+    @Published var isSpeaking = false
+
+    private let synthesizer = AVSpeechSynthesizer()
+
+    private override init() {
+        super.init()
+        synthesizer.delegate = self
+        configureAudioSession()
+    }
+
+    func toggle(_ text: String, voice: ReviewEnglishVoice) {
+        if synthesizer.isSpeaking {
+            stop()
+            return
+        }
+
+        speak(text, voice: voice)
+    }
+
+    func speak(_ text: String, voice: ReviewEnglishVoice) {
+        if synthesizer.isSpeaking {
+            synthesizer.stopSpeaking(at: .immediate)
+        }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let utterance = AVSpeechUtterance(string: trimmed)
+        utterance.voice = preferredVoice(for: voice.languageCode)
+        utterance.rate = 0.42
+        utterance.pitchMultiplier = 1.02
+        utterance.volume = 1.0
+        utterance.preUtteranceDelay = 0.08
+        utterance.postUtteranceDelay = 0.35
+
+        isSpeaking = true
+        synthesizer.speak(utterance)
+    }
+
+    func stop() {
+        if synthesizer.isSpeaking {
+            synthesizer.stopSpeaking(at: .immediate)
+        }
+        isSpeaking = false
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async {
+            self.isSpeaking = false
+        }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async {
+            self.isSpeaking = false
+        }
+    }
+
+    private func preferredVoice(for languageCode: String) -> AVSpeechSynthesisVoice? {
+        let voices = AVSpeechSynthesisVoice.speechVoices()
+        if languageCode == ReviewEnglishVoice.american.languageCode {
+            if let avaVoice = voices.first(where: { voice in
+                isAvaVoice(voice)
+                    && (voice.quality == .premium || voice.quality == .enhanced)
+            }) {
+                return avaVoice
+            }
+
+            if let fallbackAva = voices.first(where: isAvaVoice) {
+                return fallbackAva
+            }
+
+            return AVSpeechSynthesisVoice(language: ReviewEnglishVoice.american.languageCode)
+        }
+
+        if let premiumVoice = voices.first(where: { $0.language == languageCode && $0.quality == .premium }) {
+            return premiumVoice
+        }
+        if let enhancedVoice = voices.first(where: { $0.language == languageCode && $0.quality == .enhanced }) {
+            return enhancedVoice
+        }
+        return AVSpeechSynthesisVoice(language: languageCode)
+    }
+
+    private func isAvaVoice(_ voice: AVSpeechSynthesisVoice) -> Bool {
+        voice.identifier.localizedCaseInsensitiveContains("Ava")
+            || voice.name.localizedCaseInsensitiveContains("Ava")
+    }
+
+    private func configureAudioSession() {
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+        try? AVAudioSession.sharedInstance().setActive(true)
     }
 }
 
