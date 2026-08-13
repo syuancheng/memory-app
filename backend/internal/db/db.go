@@ -336,13 +336,6 @@ CREATE TABLE IF NOT EXISTS subjects (
   UNIQUE(user_id, name)
 );
 
-DO $$
-BEGIN
-  IF to_regclass('public.sets') IS NULL AND to_regclass('public.tags') IS NOT NULL THEN
-    ALTER TABLE tags RENAME TO sets;
-  END IF;
-END $$;
-
 CREATE TABLE IF NOT EXISTS sets (
   id UUID PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id),
@@ -353,26 +346,6 @@ CREATE TABLE IF NOT EXISTS sets (
   deleted_at TIMESTAMPTZ,
   UNIQUE(user_id, subject_id, name)
 );
-
-DO $$
-DECLARE
-  has_multi_set_cards BOOLEAN;
-BEGIN
-  IF to_regclass('public.card_tags') IS NOT NULL THEN
-    EXECUTE '
-      SELECT EXISTS (
-        SELECT 1
-        FROM card_tags
-        GROUP BY card_id
-        HAVING COUNT(*) > 1
-      )
-    ' INTO has_multi_set_cards;
-
-    IF has_multi_set_cards THEN
-      RAISE EXCEPTION 'cannot migrate card_tags: some cards belong to multiple sets';
-    END IF;
-  END IF;
-END $$;
 
 CREATE TABLE IF NOT EXISTS cards (
   id UUID PRIMARY KEY,
@@ -393,19 +366,6 @@ ALTER TABLE cards ADD COLUMN IF NOT EXISTS set_id UUID REFERENCES sets(id);
 
 DO $$
 BEGIN
-  IF to_regclass('public.card_tags') IS NOT NULL THEN
-    EXECUTE '
-      UPDATE cards c
-      SET set_id = ct.tag_id
-      FROM card_tags ct
-      WHERE c.id = ct.card_id
-        AND c.set_id IS NULL
-    ';
-  END IF;
-END $$;
-
-DO $$
-BEGIN
   IF EXISTS (
     SELECT 1
     FROM cards
@@ -416,8 +376,9 @@ BEGIN
 END $$;
 
 ALTER TABLE cards ALTER COLUMN set_id SET NOT NULL;
-ALTER TABLE cards DROP COLUMN IF EXISTS subject_id;
 DROP TABLE IF EXISTS card_tags;
+DROP TABLE IF EXISTS tags;
+ALTER TABLE cards DROP COLUMN IF EXISTS subject_id;
 
 CREATE TABLE IF NOT EXISTS review_states (
   card_id UUID PRIMARY KEY REFERENCES cards(id),
