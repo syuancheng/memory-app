@@ -54,13 +54,13 @@ func NewServer(pool *pgxpool.Pool) *mcp.Server {
 		Name:    "memory-app",
 		Version: "0.1.0",
 	}, &mcp.ServerOptions{
-		Instructions: "Use get_subjects_sets before add_cards so you can pass exact subject_id and set_ids. Use add_cards for single-card or batch creation. Only use delete_card when the exact card_id is known.",
+		Instructions: "Use get_subjects_sets before add_cards so you can pass the exact set_id. Use add_cards for single-card or batch creation. Only use delete_card when the exact card_id is known.",
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_subjects_sets",
 		Title:       "Get Subjects And Sets",
-		Description: "Return all English learning subjects and their sets. Sets map to backend tags.",
+		Description: "Return all English learning subjects and their sets.",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
@@ -70,7 +70,7 @@ func NewServer(pool *pgxpool.Pool) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_cards",
 		Title:       "Add Cards",
-		Description: "Create one or more flashcards under existing subject and set IDs.",
+		Description: "Create one or more flashcards under an existing set ID.",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(false),
@@ -162,8 +162,7 @@ type AddCardsInput struct {
 }
 
 type AddCardInput struct {
-	SubjectID      string          `json:"subject_id" jsonschema:"existing subject ID"`
-	SetIDs         []string        `json:"set_ids" jsonschema:"existing set IDs; sets map to backend tags"`
+	SetID          string          `json:"set_id" jsonschema:"existing set ID"`
 	FrontText      string          `json:"front_text" jsonschema:"front prompt, usually Chinese"`
 	AnswerText     string          `json:"answer_text" jsonschema:"English answer sentence"`
 	GrammarPhrases []GrammarPhrase `json:"grammar_phrases,omitempty" jsonschema:"phrase, grammar, or vocabulary hints"`
@@ -184,12 +183,12 @@ type AddCardsOutput struct {
 }
 
 type CreatedCardSummary struct {
-	Index      int      `json:"index" jsonschema:"index in the input cards array"`
-	CardID     string   `json:"card_id" jsonschema:"created card ID"`
-	SubjectID  string   `json:"subject_id" jsonschema:"subject ID"`
-	SetIDs     []string `json:"set_ids" jsonschema:"set IDs attached to the card"`
-	FrontText  string   `json:"front_text" jsonschema:"front prompt"`
-	AnswerText string   `json:"answer_text" jsonschema:"answer text"`
+	Index      int    `json:"index" jsonschema:"index in the input cards array"`
+	CardID     string `json:"card_id" jsonschema:"created card ID"`
+	SubjectID  string `json:"subject_id" jsonschema:"subject ID"`
+	SetID      string `json:"set_id" jsonschema:"set ID attached to the card"`
+	FrontText  string `json:"front_text" jsonschema:"front prompt"`
+	AnswerText string `json:"answer_text" jsonschema:"answer text"`
 }
 
 type FailedCardSummary struct {
@@ -220,15 +219,11 @@ func (t *Tools) AddCards(ctx context.Context, _ *mcp.CallToolRequest, input AddC
 			continue
 		}
 
-		setIDs := make([]string, 0, len(card.Tags))
-		for _, tag := range card.Tags {
-			setIDs = append(setIDs, tag.ID)
-		}
 		output.Created = append(output.Created, CreatedCardSummary{
 			Index:      index,
 			CardID:     card.ID,
 			SubjectID:  card.SubjectID,
-			SetIDs:     setIDs,
+			SetID:      card.SetID,
 			FrontText:  card.FrontText,
 			AnswerText: card.AnswerText,
 		})
@@ -288,16 +283,17 @@ func (t *Tools) DeleteCard(ctx context.Context, _ *mcp.CallToolRequest, input De
 
 func (t *Tools) listSubjects(ctx context.Context, userID string) ([]model.Subject, error) {
 	rows, err := t.pool.Query(ctx, `
-		SELECT s.id::text, s.name,
-		       COUNT(DISTINCT c.id)::int AS card_count,
-		       COUNT(DISTINCT CASE
-		         WHEN rs.due_at <= now() AND rs.status NOT IN ('deleted', 'mastered') THEN c.id
-		       END)::int AS due_count
-		FROM subjects s
-		LEFT JOIN cards c ON c.subject_id = s.id AND c.deleted_at IS NULL
-		LEFT JOIN review_states rs ON rs.card_id = c.id
-		WHERE s.user_id = $1 AND s.deleted_at IS NULL
-		GROUP BY s.id, s.name
+			SELECT s.id::text, s.name,
+			       COUNT(DISTINCT c.id)::int AS card_count,
+			       COUNT(DISTINCT CASE
+			         WHEN rs.due_at <= now() AND rs.status NOT IN ('deleted', 'mastered') THEN c.id
+			       END)::int AS due_count
+			FROM subjects s
+			LEFT JOIN sets st ON st.subject_id = s.id AND st.deleted_at IS NULL
+			LEFT JOIN cards c ON c.set_id = st.id AND c.deleted_at IS NULL
+			LEFT JOIN review_states rs ON rs.card_id = c.id
+			WHERE s.user_id = $1 AND s.deleted_at IS NULL
+			GROUP BY s.id, s.name
 		ORDER BY s.name
 	`, userID)
 	if err != nil {
@@ -316,29 +312,28 @@ func (t *Tools) listSubjects(ctx context.Context, userID string) ([]model.Subjec
 	return subjects, rows.Err()
 }
 
-func (t *Tools) listSets(ctx context.Context, userID string, subjectID string) ([]model.Tag, error) {
+func (t *Tools) listSets(ctx context.Context, userID string, subjectID string) ([]model.Set, error) {
 	rows, err := t.pool.Query(ctx, `
-		SELECT t.id::text, t.subject_id::text, t.name,
+		SELECT st.id::text, st.subject_id::text, st.name,
 		       COUNT(DISTINCT c.id)::int AS card_count,
 		       COUNT(DISTINCT CASE
 		         WHEN rs.due_at <= now() AND rs.status NOT IN ('deleted', 'mastered') THEN c.id
 		       END)::int AS due_count
-		FROM tags t
-		LEFT JOIN card_tags ct ON ct.tag_id = t.id
-		LEFT JOIN cards c ON c.id = ct.card_id AND c.deleted_at IS NULL
+		FROM sets st
+		LEFT JOIN cards c ON c.set_id = st.id AND c.deleted_at IS NULL
 		LEFT JOIN review_states rs ON rs.card_id = c.id
-		WHERE t.user_id = $1 AND t.subject_id = $2 AND t.deleted_at IS NULL
-		GROUP BY t.id, t.subject_id, t.name
-		ORDER BY t.name
+		WHERE st.user_id = $1 AND st.subject_id = $2 AND st.deleted_at IS NULL
+		GROUP BY st.id, st.subject_id, st.name
+		ORDER BY st.name
 	`, userID, subjectID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var sets []model.Tag
+	var sets []model.Set
 	for rows.Next() {
-		var set model.Tag
+		var set model.Set
 		if err := rows.Scan(&set.ID, &set.SubjectID, &set.Name, &set.CardCount, &set.DueCount); err != nil {
 			return nil, err
 		}
@@ -348,17 +343,14 @@ func (t *Tools) listSets(ctx context.Context, userID string, subjectID string) (
 }
 
 func (t *Tools) createCard(ctx context.Context, userID string, input AddCardInput) (model.Card, error) {
-	input.SubjectID = strings.TrimSpace(input.SubjectID)
+	input.SetID = strings.TrimSpace(input.SetID)
 	input.FrontText = strings.TrimSpace(input.FrontText)
 	input.AnswerText = strings.TrimSpace(input.AnswerText)
 	input.CardType = strings.TrimSpace(input.CardType)
 	input.Direction = strings.TrimSpace(input.Direction)
 
-	if input.SubjectID == "" {
-		return model.Card{}, errors.New("subject_id is required")
-	}
-	if len(input.SetIDs) == 0 {
-		return model.Card{}, errors.New("set_ids must contain at least one set")
+	if input.SetID == "" {
+		return model.Card{}, errors.New("set_id is required")
 	}
 	if input.FrontText == "" {
 		return model.Card{}, errors.New("front_text is required")
@@ -397,25 +389,28 @@ func (t *Tools) createCard(ctx context.Context, userID string, input AddCardInpu
 	}
 	defer tx.Rollback(ctx)
 
-	var subjectExists bool
+	var subjectID string
 	if err = tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM subjects
-			WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-		)
-	`, input.SubjectID, userID).Scan(&subjectExists); err != nil {
+		SELECT st.subject_id::text
+		FROM sets st
+		JOIN subjects s ON s.id = st.subject_id
+		WHERE st.id = $1
+		  AND st.user_id = $2
+		  AND st.deleted_at IS NULL
+		  AND s.deleted_at IS NULL
+	`, input.SetID, userID).Scan(&subjectID); err != nil {
+		if err == pgx.ErrNoRows {
+			return model.Card{}, errors.New("set not found")
+		}
 		return model.Card{}, err
-	}
-	if !subjectExists {
-		return model.Card{}, errors.New("subject not found")
 	}
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO cards (
-			id, user_id, subject_id, card_type, direction, front_text, answer_text,
+			id, user_id, set_id, card_type, direction, front_text, answer_text,
 			grammar_phrases, answer_tokens
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb)
-	`, cardID, userID, input.SubjectID, input.CardType, input.Direction, input.FrontText, input.AnswerText, string(grammarJSON), string(tokensJSON))
+	`, cardID, userID, input.SetID, input.CardType, input.Direction, input.FrontText, input.AnswerText, string(grammarJSON), string(tokensJSON))
 	if err != nil {
 		return model.Card{}, err
 	}
@@ -428,41 +423,16 @@ func (t *Tools) createCard(ctx context.Context, userID string, input AddCardInpu
 		return model.Card{}, err
 	}
 
-	for _, rawSetID := range input.SetIDs {
-		setID := strings.TrimSpace(rawSetID)
-		if setID == "" {
-			return model.Card{}, errors.New("set_ids cannot contain empty values")
-		}
-		var setExists bool
-		if err = tx.QueryRow(ctx, `
-			SELECT EXISTS (
-				SELECT 1 FROM tags
-				WHERE id = $1
-				  AND subject_id = $2
-				  AND user_id = $3
-				  AND deleted_at IS NULL
-			)
-		`, setID, input.SubjectID, userID).Scan(&setExists); err != nil {
-			return model.Card{}, err
-		}
-		if !setExists {
-			return model.Card{}, errors.New("set not found")
-		}
-		_, err = tx.Exec(ctx, `
-			INSERT INTO card_tags (card_id, tag_id)
-			VALUES ($1, $2)
-			ON CONFLICT DO NOTHING
-		`, cardID, setID)
-		if err != nil {
-			return model.Card{}, err
-		}
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return model.Card{}, err
 	}
 
-	return t.loadCard(ctx, userID, cardID)
+	card, err := t.loadCard(ctx, userID, cardID)
+	if err != nil {
+		return model.Card{}, err
+	}
+	card.SubjectID = subjectID
+	return card, nil
 }
 
 func (t *Tools) loadCard(ctx context.Context, userID string, cardID string) (model.Card, error) {
@@ -470,16 +440,27 @@ func (t *Tools) loadCard(ctx context.Context, userID string, cardID string) (mod
 	var grammarBytes []byte
 	var tokenBytes []byte
 	err := t.pool.QueryRow(ctx, `
-		SELECT c.id::text, c.subject_id::text, s.name, c.card_type, c.direction,
+		SELECT c.id::text,
+		       c.set_id::text,
+		       st.subject_id::text,
+		       s.name,
+		       st.id::text,
+		       st.name,
+		       c.card_type,
+		       c.direction,
 		       c.front_text, c.answer_text, c.grammar_phrases, c.answer_tokens,
 		       c.created_at, c.updated_at
 		FROM cards c
-		JOIN subjects s ON s.id = c.subject_id
+		JOIN sets st ON st.id = c.set_id AND st.deleted_at IS NULL
+		JOIN subjects s ON s.id = st.subject_id AND s.deleted_at IS NULL
 		WHERE c.id = $1 AND c.user_id = $2 AND c.deleted_at IS NULL
 	`, cardID, userID).Scan(
 		&card.ID,
+		&card.SetID,
 		&card.SubjectID,
 		&card.SubjectName,
+		&card.Set.ID,
+		&card.Set.Name,
 		&card.CardType,
 		&card.Direction,
 		&card.FrontText,
@@ -501,35 +482,8 @@ func (t *Tools) loadCard(ctx context.Context, userID string, cardID string) (mod
 	if err := json.Unmarshal(tokenBytes, &card.AnswerTokens); err != nil {
 		return model.Card{}, err
 	}
-	card.Tags, err = t.loadCardTags(ctx, userID, card.ID)
-	if err != nil {
-		return model.Card{}, err
-	}
+	card.Set.SubjectID = card.SubjectID
 	return card, nil
-}
-
-func (t *Tools) loadCardTags(ctx context.Context, userID string, cardID string) ([]model.Tag, error) {
-	rows, err := t.pool.Query(ctx, `
-		SELECT t.id::text, t.subject_id::text, t.name, 0, 0
-		FROM tags t
-		JOIN card_tags ct ON ct.tag_id = t.id
-		WHERE ct.card_id = $1 AND t.user_id = $2 AND t.deleted_at IS NULL
-		ORDER BY t.name
-	`, cardID, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var tags []model.Tag
-	for rows.Next() {
-		var tag model.Tag
-		if err := rows.Scan(&tag.ID, &tag.SubjectID, &tag.Name, &tag.CardCount, &tag.DueCount); err != nil {
-			return nil, err
-		}
-		tags = append(tags, tag)
-	}
-	return tags, rows.Err()
 }
 
 func withAuth(token string, oauthServer *OAuthServer, personal PersonalTokenResolver, allowDemo bool, next http.Handler) http.Handler {

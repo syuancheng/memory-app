@@ -22,7 +22,7 @@ enum StudyMode: String, Hashable {
 struct StudySessionConfig: Hashable {
     let mode: StudyMode
     let subject: AppSubject
-    let selectedTagIDs: [String]
+    let selectedSetIDs: [String]
 }
 
 struct SubjectPickerView: View {
@@ -39,7 +39,7 @@ struct SubjectPickerView: View {
                 ReviewSessionView(
                     mode: sessionConfig.mode,
                     subject: sessionConfig.subject,
-                    tagIDs: sessionConfig.selectedTagIDs
+                    setIDs: sessionConfig.selectedSetIDs
                 ) {
                     dismiss()
                 }
@@ -67,7 +67,7 @@ struct SubjectPickerView: View {
                         }
                     }
                     .navigationDestination(item: $selectedSubject) { subject in
-                        TagPickerView(subject: subject, mode: mode) { config in
+                        SetPickerView(subject: subject, mode: mode) { config in
                             sessionConfig = config
                         }
                     }

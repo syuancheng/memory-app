@@ -300,7 +300,7 @@ func (s *Service) DeleteAccount(ctx context.Context, userID string, code string)
 	if _, err = tx.Exec(ctx, `UPDATE subjects SET deleted_at = now(), updated_at = now() WHERE user_id = $1 AND deleted_at IS NULL`, userID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE tags SET deleted_at = now(), updated_at = now() WHERE user_id = $1 AND deleted_at IS NULL`, userID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE sets SET deleted_at = now(), updated_at = now() WHERE user_id = $1 AND deleted_at IS NULL`, userID); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE cards SET deleted_at = now(), updated_at = now() WHERE user_id = $1 AND deleted_at IS NULL`, userID); err != nil {

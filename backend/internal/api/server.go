@@ -56,13 +56,14 @@ func NewServer(pool *pgxpool.Pool, authService *auth.Service) http.Handler {
 			r.Delete("/mcp/tokens/{tokenID}", server.revokeMCPToken)
 
 			r.Get("/subjects", server.listSubjects)
+			r.Get("/sets", server.listAllSets)
 			r.Post("/subjects", server.createSubject)
 			r.Put("/subjects/{subjectID}", server.updateSubject)
 			r.Delete("/subjects/{subjectID}", server.deleteSubject)
-			r.Get("/subjects/{subjectID}/tags", server.listTags)
-			r.Post("/subjects/{subjectID}/tags", server.createTag)
-			r.Put("/subjects/{subjectID}/tags/{tagID}", server.updateTag)
-			r.Delete("/subjects/{subjectID}/tags/{tagID}", server.deleteTag)
+			r.Get("/subjects/{subjectID}/sets", server.listSets)
+			r.Post("/subjects/{subjectID}/sets", server.createSet)
+			r.Put("/subjects/{subjectID}/sets/{setID}", server.updateSet)
+			r.Delete("/subjects/{subjectID}/sets/{setID}", server.deleteSet)
 
 			r.Get("/cards", server.listCards)
 			r.Post("/cards", server.createCard)

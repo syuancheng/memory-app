@@ -138,23 +138,27 @@ final class APIClient {
         try await request(path: "/me/summary")
     }
 
-    func listTags(subjectID: String) async throws -> [AppTag] {
-        try await request(path: "/subjects/\(subjectID)/tags")
+    func listSets() async throws -> [AppSet] {
+        try await request(path: "/sets")
     }
 
-    func createTag(subjectID: String, name: String) async throws -> AppTag {
-        try await request(path: "/subjects/\(subjectID)/tags", method: "POST", body: NamePayload(name: name))
+    func listSets(subjectID: String) async throws -> [AppSet] {
+        try await request(path: "/subjects/\(subjectID)/sets")
     }
 
-    func updateTag(subjectID: String, tagID: String, name: String) async throws -> AppTag {
-        try await request(path: "/subjects/\(subjectID)/tags/\(tagID)", method: "PUT", body: NamePayload(name: name))
+    func createSet(subjectID: String, name: String) async throws -> AppSet {
+        try await request(path: "/subjects/\(subjectID)/sets", method: "POST", body: NamePayload(name: name))
     }
 
-    func deleteTag(subjectID: String, tagID: String) async throws {
-        let _: ActionStatusResponse = try await request(path: "/subjects/\(subjectID)/tags/\(tagID)", method: "DELETE")
+    func updateSet(subjectID: String, setID: String, name: String) async throws -> AppSet {
+        try await request(path: "/subjects/\(subjectID)/sets/\(setID)", method: "PUT", body: NamePayload(name: name))
     }
 
-    func listCards(search: String = "", subjectID: String? = nil, tagIDs: [String] = []) async throws -> [ReviewCard] {
+    func deleteSet(subjectID: String, setID: String) async throws {
+        let _: ActionStatusResponse = try await request(path: "/subjects/\(subjectID)/sets/\(setID)", method: "DELETE")
+    }
+
+    func listCards(search: String = "", subjectID: String? = nil, setIDs: [String] = []) async throws -> [ReviewCard] {
         var components = URLComponents(url: baseURL.appendingPathComponent("cards"), resolvingAgainstBaseURL: false)
         var queryItems: [URLQueryItem] = []
         if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -163,8 +167,8 @@ final class APIClient {
         if let subjectID, !subjectID.isEmpty {
             queryItems.append(URLQueryItem(name: "subject_id", value: subjectID))
         }
-        if !tagIDs.isEmpty {
-            queryItems.append(URLQueryItem(name: "tag_ids", value: tagIDs.joined(separator: ",")))
+        if !setIDs.isEmpty {
+            queryItems.append(URLQueryItem(name: "set_ids", value: setIDs.joined(separator: ",")))
         }
         components?.queryItems = queryItems.isEmpty ? nil : queryItems
         guard let url = components?.url else {
@@ -181,11 +185,11 @@ final class APIClient {
         try await request(path: "/cards/\(cardID)", method: "PUT", body: payload)
     }
 
-    func listDueCards(subjectID: String, tagIDs: [String], limit: Int = 30) async throws -> [ReviewCard] {
+    func listDueCards(subjectID: String, setIDs: [String], limit: Int = 30) async throws -> [ReviewCard] {
         var components = URLComponents(url: baseURL.appendingPathComponent("review/due"), resolvingAgainstBaseURL: false)
         components?.queryItems = [
             URLQueryItem(name: "subject_id", value: subjectID),
-            URLQueryItem(name: "tag_ids", value: tagIDs.joined(separator: ",")),
+            URLQueryItem(name: "set_ids", value: setIDs.joined(separator: ",")),
             URLQueryItem(name: "limit", value: String(limit))
         ]
         guard let url = components?.url else {

@@ -3,7 +3,7 @@ import SwiftUI
 struct ReviewSessionView: View {
     var mode: StudyMode = .review
     let subject: AppSubject
-    let tagIDs: [String]
+    let setIDs: [String]
     let onClose: () -> Void
     @State private var cards: [ReviewCard] = []
     @State private var reviewStep = 0
@@ -72,7 +72,7 @@ struct ReviewSessionView: View {
         isLoading = true
         errorMessage = nil
         do {
-            cards = try await APIClient.shared.listDueCards(subjectID: subject.id, tagIDs: tagIDs)
+            cards = try await APIClient.shared.listDueCards(subjectID: subject.id, setIDs: setIDs)
             reviewStep = 0
             initialCardCount = cards.count
             completedCount = 0

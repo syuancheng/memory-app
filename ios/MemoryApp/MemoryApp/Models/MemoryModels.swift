@@ -14,7 +14,7 @@ struct AppSubject: Identifiable, Codable, Hashable {
     }
 }
 
-struct AppTag: Identifiable, Codable, Hashable {
+struct AppSet: Identifiable, Codable, Hashable {
     let id: String
     let subjectID: String
     let name: String
@@ -65,9 +65,10 @@ enum CardDirection: String, Hashable {
 
 struct ReviewCard: Identifiable, Codable, Hashable {
     let id: String
+    let setID: String
     let subjectID: String
     let subjectName: String?
-    let tags: [AppTag]
+    let set: AppSet
     let cardType: String
     let direction: String
     let frontText: String
@@ -82,9 +83,10 @@ struct ReviewCard: Identifiable, Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id
+        case setID = "set_id"
         case subjectID = "subject_id"
         case subjectName = "subject_name"
-        case tags
+        case set
         case cardType = "card_type"
         case direction
         case frontText = "front_text"
@@ -97,8 +99,7 @@ struct ReviewCard: Identifiable, Codable, Hashable {
 }
 
 struct CardPayload: Encodable {
-    let subjectID: String
-    let tagIDs: [String]
+    let setID: String
     let cardType: String
     let direction: String
     let frontText: String
@@ -106,8 +107,7 @@ struct CardPayload: Encodable {
     let grammarPhrases: [GrammarPhrasePayload]
 
     enum CodingKeys: String, CodingKey {
-        case subjectID = "subject_id"
-        case tagIDs = "tag_ids"
+        case setID = "set_id"
         case cardType = "card_type"
         case direction
         case frontText = "front_text"

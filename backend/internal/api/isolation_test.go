@@ -26,7 +26,7 @@ type testUser struct {
 	ID        string
 	Token     string
 	SubjectID string
-	TagID     string
+	SetID     string
 	CardID    string
 }
 
@@ -74,21 +74,17 @@ func seedUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svc *auth.S
 		subjectID, userID, "Iso "+subjectID[:8]); err != nil {
 		t.Fatalf("seed subject: %v", err)
 	}
-	tagID := uuid.NewString()
+	setID := uuid.NewString()
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO tags (id, user_id, subject_id, name) VALUES ($1, $2, $3, $4)`,
-		tagID, userID, subjectID, "Set "+tagID[:8]); err != nil {
-		t.Fatalf("seed tag: %v", err)
+		INSERT INTO sets (id, user_id, subject_id, name) VALUES ($1, $2, $3, $4)`,
+		setID, userID, subjectID, "Set "+setID[:8]); err != nil {
+		t.Fatalf("seed set: %v", err)
 	}
 	cardID := uuid.NewString()
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO cards (id, user_id, subject_id, front_text, answer_text)
-		VALUES ($1, $2, $3, 'front', 'answer')`, cardID, userID, subjectID); err != nil {
+		INSERT INTO cards (id, user_id, set_id, front_text, answer_text)
+		VALUES ($1, $2, $3, 'front', 'answer')`, cardID, userID, setID); err != nil {
 		t.Fatalf("seed card: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO card_tags (card_id, tag_id) VALUES ($1, $2)`, cardID, tagID); err != nil {
-		t.Fatalf("seed card_tag: %v", err)
 	}
 
 	token, err := svc.IssueSessionForTest(ctx, userID)
@@ -97,17 +93,16 @@ func seedUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svc *auth.S
 	}
 
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM card_tags WHERE card_id = $1`, cardID)
 		_, _ = pool.Exec(ctx, `DELETE FROM review_states WHERE card_id = $1`, cardID)
 		_, _ = pool.Exec(ctx, `DELETE FROM cards WHERE user_id = $1`, userID)
-		_, _ = pool.Exec(ctx, `DELETE FROM tags WHERE user_id = $1`, userID)
+		_, _ = pool.Exec(ctx, `DELETE FROM sets WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM subjects WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM auth_sessions WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM identities WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
 	})
 
-	return testUser{ID: userID, Token: token, SubjectID: subjectID, TagID: tagID, CardID: cardID}
+	return testUser{ID: userID, Token: token, SubjectID: subjectID, SetID: setID, CardID: cardID}
 }
 
 func call(t *testing.T, handler http.Handler, method, path, token string, body any) *httptest.ResponseRecorder {
@@ -147,8 +142,7 @@ func TestCannotReachAnotherUsersCard(t *testing.T) {
 		{http.MethodDelete, "/api/cards/" + alice.CardID, nil},
 		{http.MethodPost, "/api/cards/" + alice.CardID + "/master", nil},
 		{http.MethodPut, "/api/cards/" + alice.CardID, map[string]any{
-			"subject_id":  bob.SubjectID,
-			"tag_ids":     []string{bob.TagID},
+			"set_id":      bob.SetID,
 			"front_text":  "hijacked",
 			"answer_text": "hijacked",
 		}},
@@ -182,10 +176,9 @@ func TestCannotAttachCardToAnotherUsersSubject(t *testing.T) {
 	alice := seedUser(t, ctx, pool, svc)
 	bob := seedUser(t, ctx, pool, svc)
 
-	// Bob 试图把卡片挂到 Alice 的 subject / tag 下。
+	// Bob 试图把卡片挂到 Alice 的 set 下。
 	for _, body := range []map[string]any{
-		{"subject_id": alice.SubjectID, "tag_ids": []string{alice.TagID}, "front_text": "x", "answer_text": "y"},
-		{"subject_id": bob.SubjectID, "tag_ids": []string{alice.TagID}, "front_text": "x", "answer_text": "y"},
+		{"set_id": alice.SetID, "front_text": "x", "answer_text": "y"},
 	} {
 		rec := call(t, handler, http.MethodPost, "/api/cards", bob.Token, body)
 		if rec.Code == http.StatusOK || rec.Code == http.StatusCreated {
@@ -229,21 +222,21 @@ func TestListEndpointsOnlyReturnOwnData(t *testing.T) {
 		t.Fatalf("filtering by another user's subject leaked %d cards", len(cards))
 	}
 
-	// Alice 的 subject 下的 tags 同理。
+	// Alice 的 subject 下的 sets 同理。
 	rec = call(t, handler, http.MethodGet,
-		"/api/subjects/"+alice.SubjectID+"/tags", bob.Token, nil)
-	var tags []struct {
+		"/api/subjects/"+alice.SubjectID+"/sets", bob.Token, nil)
+	var sets []struct {
 		ID string `json:"id"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &tags); err != nil {
-		t.Fatalf("decode tags: %v", err)
+	if err := json.Unmarshal(rec.Body.Bytes(), &sets); err != nil {
+		t.Fatalf("decode sets: %v", err)
 	}
-	if len(tags) != 0 {
-		t.Fatalf("leaked %d tags from another user's subject", len(tags))
+	if len(sets) != 0 {
+		t.Fatalf("leaked %d sets from another user's subject", len(sets))
 	}
 }
 
-func TestCannotMutateAnotherUsersSubjectOrTag(t *testing.T) {
+func TestCannotMutateAnotherUsersSubjectOrSet(t *testing.T) {
 	ctx := context.Background()
 	handler, pool, svc := newTestEnv(t)
 	alice := seedUser(t, ctx, pool, svc)
@@ -256,9 +249,9 @@ func TestCannotMutateAnotherUsersSubjectOrTag(t *testing.T) {
 	}{
 		{http.MethodPut, "/api/subjects/" + alice.SubjectID, map[string]string{"name": "hijacked"}},
 		{http.MethodDelete, "/api/subjects/" + alice.SubjectID, nil},
-		{http.MethodPost, "/api/subjects/" + alice.SubjectID + "/tags", map[string]string{"name": "hijacked"}},
-		{http.MethodPut, "/api/subjects/" + alice.SubjectID + "/tags/" + alice.TagID, map[string]string{"name": "hijacked"}},
-		{http.MethodDelete, "/api/subjects/" + alice.SubjectID + "/tags/" + alice.TagID, nil},
+		{http.MethodPost, "/api/subjects/" + alice.SubjectID + "/sets", map[string]string{"name": "hijacked"}},
+		{http.MethodPut, "/api/subjects/" + alice.SubjectID + "/sets/" + alice.SetID, map[string]string{"name": "hijacked"}},
+		{http.MethodDelete, "/api/subjects/" + alice.SubjectID + "/sets/" + alice.SetID, nil},
 	}
 	for _, tc := range cases {
 		rec := call(t, handler, tc.method, tc.path, bob.Token, tc.body)

@@ -189,7 +189,7 @@ struct CardsView: View {
             card.frontText.lowercased().contains(query)
                 || card.answerText.lowercased().contains(query)
                 || (card.subjectName ?? "").lowercased().contains(query)
-                || card.tags.contains { $0.name.lowercased().contains(query) }
+                || card.set.name.lowercased().contains(query)
         }
     }
 
@@ -427,19 +427,11 @@ private struct CardListRow: View {
                 .appText(AppType.body, color: AppColor.textTertiary)
                 .lineLimit(2)
 
-            if !card.tags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: AppSpace.xs) {
-                        ForEach(card.tags) { tag in
-                            Text(tag.name)
-                                .appText(AppType.caption, color: AppColor.textSecondary)
-                                .padding(.horizontal, AppSpace.sm)
-                                .padding(.vertical, AppSpace.xs)
-                                .background(AppColor.surfaceSunken, in: Capsule())
-                        }
-                    }
-                }
-            }
+            Text(card.set.name)
+                .appText(AppType.caption, color: AppColor.textSecondary)
+                .padding(.horizontal, AppSpace.sm)
+                .padding(.vertical, AppSpace.xs)
+                .background(AppColor.surfaceSunken, in: Capsule())
         }
         .padding(.vertical, AppSpace.md)
     }
@@ -457,8 +449,8 @@ private struct CardEditorView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedSubjectID = ""
-    @State private var tags: [AppTag] = []
-    @State private var selectedTagIDs: Set<String> = []
+    @State private var sets: [AppSet] = []
+    @State private var selectedSetID = ""
     @State private var frontText = ""
     @State private var answerText = ""
     @State private var phrases: [GrammarPhrasePayload] = []
@@ -471,7 +463,7 @@ private struct CardEditorView: View {
 
     private var canSave: Bool {
         !selectedSubjectID.isEmpty
-            && !selectedTagIDs.isEmpty
+            && !selectedSetID.isEmpty
             && !frontText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !answerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -502,17 +494,21 @@ private struct CardEditorView: View {
                     }
                     .onChange(of: selectedSubjectID) { _, _ in
                         Task {
-                            await loadTags()
+                            await loadSets()
                         }
                     }
 
-                    if tags.isEmpty {
-                        Text("Create a set and tag on the web app first, or use an existing set with tags.")
+                    if sets.isEmpty {
+                        Text("Create a set first, or use an existing set.")
                             .appText(AppType.label, color: AppColor.textTertiary)
                     } else {
-                        ForEach(tags) { tag in
-                            Toggle(tag.name, isOn: tagBinding(tag.id))
+                        Picker("Set", selection: $selectedSetID) {
+                            Text("Select set").tag("")
+                            ForEach(sets) { set in
+                                Text(set.name).tag(set.id)
+                            }
                         }
+                        .pickerStyle(.menu)
                     }
                 }
 
@@ -560,7 +556,7 @@ private struct CardEditorView: View {
             }
             .task {
                 configureInitialState()
-                await loadTags()
+                await loadSets()
             }
         }
     }
@@ -571,7 +567,7 @@ private struct CardEditorView: View {
         }
         if let card {
             selectedSubjectID = card.subjectID
-            selectedTagIDs = Set(card.tags.map(\.id))
+            selectedSetID = card.set.id
             frontText = card.frontText
             answerText = card.answerText
             phrases = card.grammarPhrases.map { GrammarPhrasePayload(text: $0.text, note: $0.note) }
@@ -581,16 +577,16 @@ private struct CardEditorView: View {
         }
     }
 
-    private func loadTags() async {
+    private func loadSets() async {
         guard !selectedSubjectID.isEmpty else {
-            tags = []
-            selectedTagIDs = []
+            sets = []
+            selectedSetID = ""
             return
         }
         do {
-            tags = try await APIClient.shared.listTags(subjectID: selectedSubjectID)
-            selectedTagIDs = selectedTagIDs.filter { tagID in
-                tags.contains { $0.id == tagID }
+            sets = try await APIClient.shared.listSets(subjectID: selectedSubjectID)
+            if !sets.contains(where: { $0.id == selectedSetID }) {
+                selectedSetID = sets.first?.id ?? ""
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -604,8 +600,7 @@ private struct CardEditorView: View {
         isSaving = true
         errorMessage = nil
         let payload = CardPayload(
-            subjectID: selectedSubjectID,
-            tagIDs: Array(selectedTagIDs),
+            setID: selectedSetID,
             cardType: card?.cardType ?? "sentence",
             direction: card?.direction ?? "zh_to_en",
             frontText: frontText,
@@ -625,18 +620,6 @@ private struct CardEditorView: View {
             errorMessage = error.localizedDescription
         }
         isSaving = false
-    }
-
-    private func tagBinding(_ tagID: String) -> Binding<Bool> {
-        Binding {
-            selectedTagIDs.contains(tagID)
-        } set: { isSelected in
-            if isSelected {
-                selectedTagIDs.insert(tagID)
-            } else {
-                selectedTagIDs.remove(tagID)
-            }
-        }
     }
 
     private func phraseTextBinding(_ index: Int) -> Binding<String> {

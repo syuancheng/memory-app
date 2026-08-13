@@ -24,8 +24,7 @@ type nameRequest struct {
 }
 
 type cardRequest struct {
-	SubjectID      string                `json:"subject_id"`
-	TagIDs         []string              `json:"tag_ids"`
+	SetID          string                `json:"set_id"`
 	CardType       string                `json:"card_type"`
 	Direction      string                `json:"direction"`
 	FrontText      string                `json:"front_text"`
@@ -171,7 +170,8 @@ func (s *Server) listSubjects(w http.ResponseWriter, r *http.Request) {
 		         WHEN rs.due_at <= now() AND rs.status NOT IN ('deleted', 'mastered') THEN c.id
 		       END)::int AS due_count
 		FROM subjects s
-		LEFT JOIN cards c ON c.subject_id = s.id AND c.deleted_at IS NULL
+		LEFT JOIN sets st ON st.subject_id = s.id AND st.deleted_at IS NULL
+		LEFT JOIN cards c ON c.set_id = st.id AND c.deleted_at IS NULL
 		LEFT JOIN review_states rs ON rs.card_id = c.id
 		WHERE s.user_id = $1 AND s.deleted_at IS NULL
 		GROUP BY s.id, s.name
@@ -193,6 +193,43 @@ func (s *Server) listSubjects(w http.ResponseWriter, r *http.Request) {
 		subjects = append(subjects, subject)
 	}
 	writeJSON(w, http.StatusOK, subjects)
+}
+
+func (s *Server) listAllSets(w http.ResponseWriter, r *http.Request) {
+	userID := currentUserID(r)
+	rows, err := s.db.Query(r.Context(), `
+		SELECT st.id::text, st.subject_id::text, st.name,
+		       COUNT(DISTINCT c.id)::int AS card_count,
+		       COUNT(DISTINCT CASE
+		         WHEN rs.due_at <= now() AND rs.status NOT IN ('deleted', 'mastered') THEN c.id
+		       END)::int AS due_count
+		FROM sets st
+		LEFT JOIN cards c ON c.set_id = st.id AND c.deleted_at IS NULL
+		LEFT JOIN review_states rs ON rs.card_id = c.id
+		WHERE st.user_id = $1 AND st.deleted_at IS NULL
+		GROUP BY st.id, st.subject_id, st.name
+		ORDER BY st.name
+	`, userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	sets := []model.Set{}
+	for rows.Next() {
+		var set model.Set
+		if err := rows.Scan(&set.ID, &set.SubjectID, &set.Name, &set.CardCount, &set.DueCount); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		sets = append(sets, set)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, sets)
 }
 
 func (s *Server) createSubject(w http.ResponseWriter, r *http.Request) {
@@ -279,7 +316,7 @@ func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err = tx.Exec(r.Context(), `
-		UPDATE tags SET deleted_at = now(), updated_at = now()
+		UPDATE sets SET deleted_at = now(), updated_at = now()
 		WHERE subject_id = $1 AND user_id = $2 AND deleted_at IS NULL
 	`, subjectID, userID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -288,7 +325,11 @@ func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
 
 	if _, err = tx.Exec(r.Context(), `
 		UPDATE cards SET deleted_at = now(), updated_at = now()
-		WHERE subject_id = $1 AND user_id = $2 AND deleted_at IS NULL
+		WHERE user_id = $2
+		  AND deleted_at IS NULL
+		  AND set_id IN (
+		    SELECT id FROM sets WHERE subject_id = $1 AND user_id = $2
+		  )
 	`, subjectID, userID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -297,7 +338,10 @@ func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
 	if _, err = tx.Exec(r.Context(), `
 		UPDATE review_states SET status = 'deleted'
 		WHERE card_id IN (
-			SELECT id FROM cards WHERE subject_id = $1 AND user_id = $2
+			SELECT c.id
+			FROM cards c
+			JOIN sets st ON st.id = c.set_id
+			WHERE st.subject_id = $1 AND c.user_id = $2
 		)
 	`, subjectID, userID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -311,22 +355,21 @@ func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-func (s *Server) listTags(w http.ResponseWriter, r *http.Request) {
+func (s *Server) listSets(w http.ResponseWriter, r *http.Request) {
 	userID := currentUserID(r)
 	subjectID := chi.URLParam(r, "subjectID")
 	rows, err := s.db.Query(r.Context(), `
-		SELECT t.id::text, t.subject_id::text, t.name,
+		SELECT st.id::text, st.subject_id::text, st.name,
 		       COUNT(DISTINCT c.id)::int AS card_count,
 		       COUNT(DISTINCT CASE
 		         WHEN rs.due_at <= now() AND rs.status NOT IN ('deleted', 'mastered') THEN c.id
 		       END)::int AS due_count
-		FROM tags t
-		LEFT JOIN card_tags ct ON ct.tag_id = t.id
-		LEFT JOIN cards c ON c.id = ct.card_id AND c.deleted_at IS NULL
+		FROM sets st
+		LEFT JOIN cards c ON c.set_id = st.id AND c.deleted_at IS NULL
 		LEFT JOIN review_states rs ON rs.card_id = c.id
-		WHERE t.user_id = $1 AND t.subject_id = $2 AND t.deleted_at IS NULL
-		GROUP BY t.id, t.subject_id, t.name
-		ORDER BY t.name
+		WHERE st.user_id = $1 AND st.subject_id = $2 AND st.deleted_at IS NULL
+		GROUP BY st.id, st.subject_id, st.name
+		ORDER BY st.name
 	`, userID, subjectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -334,19 +377,19 @@ func (s *Server) listTags(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	tags := []model.Tag{}
+	sets := []model.Set{}
 	for rows.Next() {
-		var tag model.Tag
-		if err := rows.Scan(&tag.ID, &tag.SubjectID, &tag.Name, &tag.CardCount, &tag.DueCount); err != nil {
+		var set model.Set
+		if err := rows.Scan(&set.ID, &set.SubjectID, &set.Name, &set.CardCount, &set.DueCount); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		tags = append(tags, tag)
+		sets = append(sets, set)
 	}
-	writeJSON(w, http.StatusOK, tags)
+	writeJSON(w, http.StatusOK, sets)
 }
 
-func (s *Server) createTag(w http.ResponseWriter, r *http.Request) {
+func (s *Server) createSet(w http.ResponseWriter, r *http.Request) {
 	userID := currentUserID(r)
 	subjectID := chi.URLParam(r, "subjectID")
 	var req nameRequest
@@ -373,20 +416,20 @@ func (s *Server) createTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := uuid.NewString()
-	var tag model.Tag
+	var set model.Set
 	err := s.db.QueryRow(r.Context(), `
-		INSERT INTO tags (id, user_id, subject_id, name)
+		INSERT INTO sets (id, user_id, subject_id, name)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id::text, subject_id::text, name, 0, 0
-	`, id, userID, subjectID, strings.TrimSpace(req.Name)).Scan(&tag.ID, &tag.SubjectID, &tag.Name, &tag.CardCount, &tag.DueCount)
+	`, id, userID, subjectID, strings.TrimSpace(req.Name)).Scan(&set.ID, &set.SubjectID, &set.Name, &set.CardCount, &set.DueCount)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, tag)
+	writeJSON(w, http.StatusCreated, set)
 }
 
-func (s *Server) updateTag(w http.ResponseWriter, r *http.Request) {
+func (s *Server) updateSet(w http.ResponseWriter, r *http.Request) {
 	userID := currentUserID(r)
 	var req nameRequest
 	if err := readJSON(r, &req); err != nil {
@@ -398,18 +441,18 @@ func (s *Server) updateTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var tag model.Tag
+	var set model.Set
 	err := s.db.QueryRow(r.Context(), `
-		UPDATE tags
+		UPDATE sets
 		SET name = $1, updated_at = now()
 		WHERE id = $2 AND subject_id = $3 AND user_id = $4 AND deleted_at IS NULL
 		RETURNING id::text, subject_id::text, name, 0, 0
-	`, strings.TrimSpace(req.Name), chi.URLParam(r, "tagID"), chi.URLParam(r, "subjectID"), userID).Scan(
-		&tag.ID,
-		&tag.SubjectID,
-		&tag.Name,
-		&tag.CardCount,
-		&tag.DueCount,
+	`, strings.TrimSpace(req.Name), chi.URLParam(r, "setID"), chi.URLParam(r, "subjectID"), userID).Scan(
+		&set.ID,
+		&set.SubjectID,
+		&set.Name,
+		&set.CardCount,
+		&set.DueCount,
 	)
 	if err == pgx.ErrNoRows {
 		writeError(w, http.StatusNotFound, "set not found")
@@ -419,13 +462,13 @@ func (s *Server) updateTag(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, tag)
+	writeJSON(w, http.StatusOK, set)
 }
 
-func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
+func (s *Server) deleteSet(w http.ResponseWriter, r *http.Request) {
 	userID := currentUserID(r)
 	subjectID := chi.URLParam(r, "subjectID")
-	tagID := chi.URLParam(r, "tagID")
+	setID := chi.URLParam(r, "setID")
 	tx, err := s.db.Begin(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -434,9 +477,9 @@ func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 
 	commandTag, err := tx.Exec(r.Context(), `
-		UPDATE tags SET deleted_at = now(), updated_at = now()
+		UPDATE sets SET deleted_at = now(), updated_at = now()
 		WHERE id = $1 AND subject_id = $2 AND user_id = $3 AND deleted_at IS NULL
-	`, tagID, subjectID, userID)
+	`, setID, subjectID, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -447,14 +490,11 @@ func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err = tx.Exec(r.Context(), `
-		UPDATE cards SET deleted_at = now(), updated_at = now()
-		WHERE subject_id = $1
-		  AND user_id = $2
-		  AND deleted_at IS NULL
-		  AND id IN (
-			SELECT card_id FROM card_tags WHERE tag_id = $3
-		  )
-	`, subjectID, userID, tagID); err != nil {
+			UPDATE cards SET deleted_at = now(), updated_at = now()
+			WHERE set_id = $1
+			  AND user_id = $2
+			  AND deleted_at IS NULL
+		`, setID, userID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -464,10 +504,10 @@ func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
 		WHERE card_id IN (
 			SELECT c.id
 			FROM cards c
-			JOIN card_tags ct ON ct.card_id = c.id
-			WHERE c.subject_id = $1 AND c.user_id = $2 AND ct.tag_id = $3
+			JOIN sets st ON st.id = c.set_id
+			WHERE st.subject_id = $1 AND c.user_id = $2 AND c.set_id = $3
 		)
-	`, subjectID, userID, tagID); err != nil {
+	`, subjectID, userID, setID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -483,7 +523,7 @@ func (s *Server) listCards(w http.ResponseWriter, r *http.Request) {
 	cards, err := loadCards(r.Context(), s.db, cardFilters{
 		UserID:    currentUserID(r),
 		SubjectID: r.URL.Query().Get("subject_id"),
-		TagIDs:    splitCSV(r.URL.Query().Get("tag_ids")),
+		SetIDs:    splitCSV(r.URL.Query().Get("set_ids")),
 		Search:    r.URL.Query().Get("search"),
 		OnlyDue:   false,
 		Limit:     200,
@@ -625,7 +665,7 @@ func (s *Server) listDueCards(w http.ResponseWriter, r *http.Request) {
 	cards, err := loadCards(r.Context(), s.db, cardFilters{
 		UserID:    currentUserID(r),
 		SubjectID: r.URL.Query().Get("subject_id"),
-		TagIDs:    splitCSV(r.URL.Query().Get("tag_ids")),
+		SetIDs:    splitCSV(r.URL.Query().Get("set_ids")),
 		OnlyDue:   true,
 		Limit:     limit,
 	})
@@ -748,7 +788,7 @@ func loadReviewStateForUpdate(ctx context.Context, tx pgx.Tx, userID string, car
 }
 
 func upsertCard(ctx context.Context, pool *pgxpool.Pool, userID string, cardID string, req cardRequest) (model.Card, error) {
-	if err := required(req.SubjectID, "subject_id"); err != nil {
+	if err := required(req.SetID, "set_id"); err != nil {
 		return model.Card{}, err
 	}
 	if err := required(req.FrontText, "front_text"); err != nil {
@@ -757,10 +797,8 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, userID string, cardID s
 	if err := required(req.AnswerText, "answer_text"); err != nil {
 		return model.Card{}, err
 	}
-	if len(req.TagIDs) == 0 {
-		return model.Card{}, fmt.Errorf("at least one tag_id is required")
-	}
 	req.CardType = service.NormalizeCardType(req.CardType)
+	req.SetID = strings.TrimSpace(req.SetID)
 	// 方向由正面文本推断，不接受客户端指定 —— 避免与内容自相矛盾
 	req.Direction = service.DetectDirection(req.FrontText)
 
@@ -780,45 +818,30 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, userID string, cardID s
 	}
 	defer tx.Rollback(ctx)
 
-	var subjectExists bool
+	var setSubjectID string
 	if err = tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM subjects
-			WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-		)
-	`, req.SubjectID, userID).Scan(&subjectExists); err != nil {
-		return model.Card{}, err
-	}
-	if !subjectExists {
-		return model.Card{}, fmt.Errorf("subject not found")
-	}
-
-	for _, tagID := range req.TagIDs {
-		var tagExists bool
-		if err = tx.QueryRow(ctx, `
-			SELECT EXISTS (
-				SELECT 1 FROM tags
-				WHERE id = $1
-				  AND subject_id = $2
-				  AND user_id = $3
-				  AND deleted_at IS NULL
-			)
-		`, tagID, req.SubjectID, userID).Scan(&tagExists); err != nil {
-			return model.Card{}, err
-		}
-		if !tagExists {
+		SELECT st.subject_id::text
+		FROM sets st
+		JOIN subjects s ON s.id = st.subject_id
+		WHERE st.id = $1
+		  AND st.user_id = $2
+		  AND st.deleted_at IS NULL
+		  AND s.deleted_at IS NULL
+	`, req.SetID, userID).Scan(&setSubjectID); err != nil {
+		if err == pgx.ErrNoRows {
 			return model.Card{}, fmt.Errorf("set not found")
 		}
+		return model.Card{}, err
 	}
 
 	if cardID == "" {
 		cardID = uuid.NewString()
 		_, err = tx.Exec(ctx, `
 			INSERT INTO cards (
-				id, user_id, subject_id, card_type, direction, front_text, answer_text,
+				id, user_id, set_id, card_type, direction, front_text, answer_text,
 				grammar_phrases, answer_tokens
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb)
-		`, cardID, userID, req.SubjectID, req.CardType, req.Direction, strings.TrimSpace(req.FrontText), strings.TrimSpace(req.AnswerText), string(grammarJSON), string(tokensJSON))
+		`, cardID, userID, req.SetID, req.CardType, req.Direction, strings.TrimSpace(req.FrontText), strings.TrimSpace(req.AnswerText), string(grammarJSON), string(tokensJSON))
 		if err != nil {
 			return model.Card{}, err
 		}
@@ -832,7 +855,7 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, userID string, cardID s
 	} else {
 		commandTag, err := tx.Exec(ctx, `
 			UPDATE cards
-			SET subject_id = $3,
+			SET set_id = $3,
 			    card_type = $4,
 			    direction = $5,
 			    front_text = $6,
@@ -841,27 +864,12 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, userID string, cardID s
 			    answer_tokens = $9::jsonb,
 			    updated_at = now()
 			WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-		`, cardID, userID, req.SubjectID, req.CardType, req.Direction, strings.TrimSpace(req.FrontText), strings.TrimSpace(req.AnswerText), string(grammarJSON), string(tokensJSON))
+		`, cardID, userID, req.SetID, req.CardType, req.Direction, strings.TrimSpace(req.FrontText), strings.TrimSpace(req.AnswerText), string(grammarJSON), string(tokensJSON))
 		if err != nil {
 			return model.Card{}, err
 		}
 		if commandTag.RowsAffected() == 0 {
 			return model.Card{}, fmt.Errorf("card not found")
-		}
-		_, err = tx.Exec(ctx, `DELETE FROM card_tags WHERE card_id = $1`, cardID)
-		if err != nil {
-			return model.Card{}, err
-		}
-	}
-
-	for _, tagID := range req.TagIDs {
-		_, err = tx.Exec(ctx, `
-			INSERT INTO card_tags (card_id, tag_id)
-			VALUES ($1, $2)
-			ON CONFLICT DO NOTHING
-		`, cardID, tagID)
-		if err != nil {
-			return model.Card{}, err
 		}
 	}
 
@@ -882,7 +890,7 @@ type cardFilters struct {
 	UserID    string
 	CardID    string
 	SubjectID string
-	TagIDs    []string
+	SetIDs    []string
 	Search    string
 	OnlyDue   bool
 	Limit     int
@@ -899,7 +907,7 @@ func loadCards(ctx context.Context, pool *pgxpool.Pool, filters cardFilters) ([]
 		argIndex++
 	}
 	if filters.SubjectID != "" {
-		conditions = append(conditions, fmt.Sprintf("c.subject_id = $%d", argIndex))
+		conditions = append(conditions, fmt.Sprintf("st.subject_id = $%d", argIndex))
 		args = append(args, filters.SubjectID)
 		argIndex++
 	}
@@ -911,19 +919,14 @@ func loadCards(ctx context.Context, pool *pgxpool.Pool, filters cardFilters) ([]
 	if filters.OnlyDue {
 		conditions = append(conditions, "rs.due_at <= now()", "rs.status NOT IN ('deleted', 'mastered')")
 	}
-	if len(filters.TagIDs) > 0 {
-		placeholders := make([]string, 0, len(filters.TagIDs))
-		for _, tagID := range filters.TagIDs {
+	if len(filters.SetIDs) > 0 {
+		placeholders := make([]string, 0, len(filters.SetIDs))
+		for _, setID := range filters.SetIDs {
 			placeholders = append(placeholders, fmt.Sprintf("$%d", argIndex))
-			args = append(args, tagID)
+			args = append(args, setID)
 			argIndex++
 		}
-		conditions = append(conditions, fmt.Sprintf(`
-			EXISTS (
-				SELECT 1 FROM card_tags selected
-				WHERE selected.card_id = c.id AND selected.tag_id IN (%s)
-			)
-		`, strings.Join(placeholders, ",")))
+		conditions = append(conditions, fmt.Sprintf("c.set_id IN (%s)", strings.Join(placeholders, ",")))
 	}
 
 	limit := filters.Limit
@@ -934,14 +937,22 @@ func loadCards(ctx context.Context, pool *pgxpool.Pool, filters cardFilters) ([]
 	limitPlaceholder := fmt.Sprintf("$%d", argIndex)
 
 	query := fmt.Sprintf(`
-		SELECT c.id::text, c.subject_id::text, s.name, c.card_type, c.direction,
-		       c.front_text, c.answer_text, c.grammar_phrases, c.answer_tokens,
-		       c.created_at, c.updated_at
-		FROM cards c
-		JOIN subjects s ON s.id = c.subject_id
-		JOIN review_states rs ON rs.card_id = c.id
-		WHERE %s
-		ORDER BY rs.due_at ASC, c.created_at DESC
+			SELECT c.id::text,
+			       c.set_id::text,
+			       st.subject_id::text,
+			       s.name,
+			       st.id::text,
+			       st.name,
+			       c.card_type,
+			       c.direction,
+			       c.front_text, c.answer_text, c.grammar_phrases, c.answer_tokens,
+			       c.created_at, c.updated_at
+			FROM cards c
+			JOIN sets st ON st.id = c.set_id AND st.deleted_at IS NULL
+			JOIN subjects s ON s.id = st.subject_id AND s.deleted_at IS NULL
+			JOIN review_states rs ON rs.card_id = c.id
+			WHERE %s
+			ORDER BY rs.due_at ASC, c.created_at DESC
 		LIMIT %s
 	`, strings.Join(conditions, " AND "), limitPlaceholder)
 
@@ -958,8 +969,11 @@ func loadCards(ctx context.Context, pool *pgxpool.Pool, filters cardFilters) ([]
 		var tokenBytes []byte
 		if err := rows.Scan(
 			&card.ID,
+			&card.SetID,
 			&card.SubjectID,
 			&card.SubjectName,
+			&card.Set.ID,
+			&card.Set.Name,
 			&card.CardType,
 			&card.Direction,
 			&card.FrontText,
@@ -977,36 +991,8 @@ func loadCards(ctx context.Context, pool *pgxpool.Pool, filters cardFilters) ([]
 		if err := json.Unmarshal(tokenBytes, &card.AnswerTokens); err != nil {
 			return nil, err
 		}
-		tags, err := loadCardTags(ctx, pool, filters.UserID, card.ID)
-		if err != nil {
-			return nil, err
-		}
-		card.Tags = tags
+		card.Set.SubjectID = card.SubjectID
 		cards = append(cards, card)
 	}
 	return cards, rows.Err()
-}
-
-func loadCardTags(ctx context.Context, pool *pgxpool.Pool, userID string, cardID string) ([]model.Tag, error) {
-	rows, err := pool.Query(ctx, `
-		SELECT t.id::text, t.subject_id::text, t.name, 0, 0
-		FROM tags t
-		JOIN card_tags ct ON ct.tag_id = t.id
-		WHERE ct.card_id = $1 AND t.user_id = $2 AND t.deleted_at IS NULL
-		ORDER BY t.name
-	`, cardID, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	tags := []model.Tag{}
-	for rows.Next() {
-		var tag model.Tag
-		if err := rows.Scan(&tag.ID, &tag.SubjectID, &tag.Name, &tag.CardCount, &tag.DueCount); err != nil {
-			return nil, err
-		}
-		tags = append(tags, tag)
-	}
-	return tags, rows.Err()
 }

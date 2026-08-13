@@ -32,8 +32,7 @@ func TestToolsAddAndDeleteCards(t *testing.T) {
 	_, addOutput, err := tools.AddCards(ctx, nil, AddCardsInput{
 		Cards: []AddCardInput{
 			{
-				SubjectID:  subjectID,
-				SetIDs:     []string{setID},
+				SetID:      setID,
 				FrontText:  "我想确认一下。",
 				AnswerText: "I would like to confirm.",
 				GrammarPhrases: []GrammarPhrase{
@@ -41,8 +40,7 @@ func TestToolsAddAndDeleteCards(t *testing.T) {
 				},
 			},
 			{
-				SubjectID:  subjectID,
-				SetIDs:     []string{"not-a-real-set"},
+				SetID:      "not-a-real-set",
 				FrontText:  "bad card",
 				AnswerText: "This should fail.",
 			},
@@ -90,14 +88,12 @@ func TestToolsIsolateCardsByAuthenticatedUser(t *testing.T) {
 	_, addOutput, err := tools.AddCards(userACtx, nil, AddCardsInput{
 		Cards: []AddCardInput{
 			{
-				SubjectID:  subjectA,
-				SetIDs:     []string{setA},
+				SetID:      setA,
 				FrontText:  "我想确认一下。",
 				AnswerText: "I would like to confirm.",
 			},
 			{
-				SubjectID:  subjectB,
-				SetIDs:     []string{setB},
+				SetID:      setB,
 				FrontText:  "cross user",
 				AnswerText: "This should fail.",
 			},
@@ -180,7 +176,7 @@ func seedSubjectAndSetForUser(t *testing.T, ctx context.Context, pool *pgxpool.P
 	}
 
 	_, err = pool.Exec(ctx, `
-		INSERT INTO tags (id, user_id, subject_id, name, deleted_at, updated_at)
+		INSERT INTO sets (id, user_id, subject_id, name, deleted_at, updated_at)
 		VALUES ($1, $2, $3, $4, NULL, now())
 		ON CONFLICT (id) DO UPDATE
 		SET subject_id = EXCLUDED.subject_id,

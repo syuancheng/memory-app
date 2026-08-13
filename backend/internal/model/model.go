@@ -12,7 +12,7 @@ type Subject struct {
 	DueCount  int    `json:"due_count"`
 }
 
-type Tag struct {
+type Set struct {
 	ID        string `json:"id"`
 	SubjectID string `json:"subject_id"`
 	Name      string `json:"name"`
@@ -32,9 +32,10 @@ type AnswerToken struct {
 
 type Card struct {
 	ID             string          `json:"id"`
+	SetID          string          `json:"set_id"`
 	SubjectID      string          `json:"subject_id"`
 	SubjectName    string          `json:"subject_name,omitempty"`
-	Tags           []Tag           `json:"tags"`
+	Set            Set             `json:"set"`
 	CardType       string          `json:"card_type"`
 	Direction      string          `json:"direction"`
 	FrontText      string          `json:"front_text"`

@@ -79,7 +79,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		subjectIDs[subject.Key] = subjectID
 	}
 
-	tags := []struct {
+	sets := []struct {
 		Key        string
 		ID         string
 		SubjectKey string
@@ -93,11 +93,11 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		{Key: "hotel", ID: "00000000-0000-0000-0000-000000000306", SubjectKey: "travel", Name: "Hotel"},
 		{Key: "restaurant", ID: "00000000-0000-0000-0000-000000000307", SubjectKey: "travel", Name: "Restaurant"},
 	}
-	tagIDs := make(map[string]string, len(tags))
-	for _, tag := range tags {
-		var tagID string
+	setIDs := make(map[string]string, len(sets))
+	for _, set := range sets {
+		var setID string
 		err = tx.QueryRow(ctx, `
-			INSERT INTO tags (id, user_id, subject_id, name, deleted_at, updated_at)
+			INSERT INTO sets (id, user_id, subject_id, name, deleted_at, updated_at)
 			VALUES ($1, $2, $3, $4, NULL, now())
 			ON CONFLICT (user_id, subject_id, name) DO UPDATE
 			SET subject_id = EXCLUDED.subject_id,
@@ -105,25 +105,23 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 			    deleted_at = NULL,
 			    updated_at = now()
 			RETURNING id::text
-		`, tag.ID, DemoUserID, subjectIDs[tag.SubjectKey], tag.Name).Scan(&tagID)
+		`, set.ID, DemoUserID, subjectIDs[set.SubjectKey], set.Name).Scan(&setID)
 		if err != nil {
-			return fmt.Errorf("ensure demo tag %q: %w", tag.Name, err)
+			return fmt.Errorf("ensure demo set %q: %w", set.Name, err)
 		}
-		tagIDs[tag.Key] = tagID
+		setIDs[set.Key] = setID
 	}
 
 	cards := []struct {
 		ID             string
-		SubjectID      string
-		TagIDs         []string
+		SetID          string
 		FrontText      string
 		AnswerText     string
 		GrammarPhrases []model.GrammarPhrase
 	}{
 		{
 			ID:         "00000000-0000-0000-0000-000000000101",
-			SubjectID:  subjectIDs["english"],
-			TagIDs:     []string{tagIDs["work"], tagIDs["speaking"]},
+			SetID:      setIDs["speaking"],
 			FrontText:  "我想委婉问一下，明天之前能不能拿到？",
 			AnswerText: "Any chance of getting it by tomorrow?",
 			GrammarPhrases: []model.GrammarPhrase{
@@ -134,8 +132,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		},
 		{
 			ID:         "00000000-0000-0000-0000-000000000102",
-			SubjectID:  subjectIDs["english"],
-			TagIDs:     []string{tagIDs["work"], tagIDs["speaking"]},
+			SetID:      setIDs["speaking"],
 			FrontText:  "我不是催你，只是想确认一下进度。",
 			AnswerText: "I am not trying to rush you. I just wanted to check on the progress.",
 			GrammarPhrases: []model.GrammarPhrase{
@@ -145,8 +142,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		},
 		{
 			ID:         "00000000-0000-0000-0000-000000000103",
-			SubjectID:  subjectIDs["english"],
-			TagIDs:     []string{tagIDs["email"]},
+			SetID:      setIDs["email"],
 			FrontText:  "如果你方便的话，能不能今天晚些时候发我一版？",
 			AnswerText: "If it is convenient, could you send me a version later today?",
 			GrammarPhrases: []model.GrammarPhrase{
@@ -156,8 +152,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		},
 		{
 			ID:         "00000000-0000-0000-0000-000000000104",
-			SubjectID:  subjectIDs["english"],
-			TagIDs:     []string{tagIDs["work"]},
+			SetID:      setIDs["work"],
 			FrontText:  "我理解你的顾虑，但我们可能需要先做一个小范围尝试。",
 			AnswerText: "I understand your concern, but we may need to try it on a smaller scale first.",
 			GrammarPhrases: []model.GrammarPhrase{
@@ -167,8 +162,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		},
 		{
 			ID:         "00000000-0000-0000-0000-000000000105",
-			SubjectID:  subjectIDs["interview"],
-			TagIDs:     []string{tagIDs["behavioral"]},
+			SetID:      setIDs["behavioral"],
 			FrontText:  "我通常会先澄清目标，再决定实现细节。",
 			AnswerText: "I usually clarify the goal first before deciding on the implementation details.",
 			GrammarPhrases: []model.GrammarPhrase{
@@ -178,8 +172,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		},
 		{
 			ID:         "00000000-0000-0000-0000-000000000106",
-			SubjectID:  subjectIDs["interview"],
-			TagIDs:     []string{tagIDs["behavioral"]},
+			SetID:      setIDs["behavioral"],
 			FrontText:  "当优先级冲突时，我会把影响范围和风险讲清楚。",
 			AnswerText: "When priorities conflict, I explain the impact and the risks clearly.",
 			GrammarPhrases: []model.GrammarPhrase{
@@ -189,8 +182,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		},
 		{
 			ID:         "00000000-0000-0000-0000-000000000107",
-			SubjectID:  subjectIDs["interview"],
-			TagIDs:     []string{tagIDs["system-design"]},
+			SetID:      setIDs["system-design"],
 			FrontText:  "我们可以先缓存热门数据，减少数据库压力。",
 			AnswerText: "We can cache the most requested data first to reduce database load.",
 			GrammarPhrases: []model.GrammarPhrase{
@@ -200,8 +192,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		},
 		{
 			ID:         "00000000-0000-0000-0000-000000000108",
-			SubjectID:  subjectIDs["interview"],
-			TagIDs:     []string{tagIDs["system-design"]},
+			SetID:      setIDs["system-design"],
 			FrontText:  "为了保证一致性，我们需要让写入经过同一个服务。",
 			AnswerText: "To keep the data consistent, writes should go through the same service.",
 			GrammarPhrases: []model.GrammarPhrase{
@@ -211,8 +202,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		},
 		{
 			ID:         "00000000-0000-0000-0000-000000000109",
-			SubjectID:  subjectIDs["travel"],
-			TagIDs:     []string{tagIDs["hotel"]},
+			SetID:      setIDs["hotel"],
 			FrontText:  "我想确认一下，我的预订包含早餐吗？",
 			AnswerText: "I would like to confirm whether breakfast is included in my booking.",
 			GrammarPhrases: []model.GrammarPhrase{
@@ -222,8 +212,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		},
 		{
 			ID:         "00000000-0000-0000-0000-000000000110",
-			SubjectID:  subjectIDs["travel"],
-			TagIDs:     []string{tagIDs["hotel"]},
+			SetID:      setIDs["hotel"],
 			FrontText:  "可以帮我把退房时间延后一小时吗？",
 			AnswerText: "Could you help me extend the checkout time by one hour?",
 			GrammarPhrases: []model.GrammarPhrase{
@@ -233,8 +222,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		},
 		{
 			ID:         "00000000-0000-0000-0000-000000000111",
-			SubjectID:  subjectIDs["travel"],
-			TagIDs:     []string{tagIDs["restaurant"]},
+			SetID:      setIDs["restaurant"],
 			FrontText:  "我们有预约，不过可能会晚到十分钟。",
 			AnswerText: "We have a reservation, but we might be about ten minutes late.",
 			GrammarPhrases: []model.GrammarPhrase{
@@ -244,8 +232,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		},
 		{
 			ID:         "00000000-0000-0000-0000-000000000112",
-			SubjectID:  subjectIDs["travel"],
-			TagIDs:     []string{tagIDs["restaurant"]},
+			SetID:      setIDs["restaurant"],
 			FrontText:  "这道菜可以不放香菜吗？",
 			AnswerText: "Could you make this dish without cilantro?",
 			GrammarPhrases: []model.GrammarPhrase{
@@ -267,7 +254,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 
 		_, err = tx.Exec(ctx, `
 			INSERT INTO cards (
-				id, user_id, subject_id, card_type, direction, front_text, answer_text,
+				id, user_id, set_id, card_type, direction, front_text, answer_text,
 				grammar_phrases, answer_tokens, deleted_at, updated_at
 			) VALUES (
 				$1, $2, $3, 'sentence', 'zh_to_en', $4, $5,
@@ -275,7 +262,7 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 			)
 			ON CONFLICT (id) DO UPDATE
 			SET user_id = EXCLUDED.user_id,
-			    subject_id = EXCLUDED.subject_id,
+			    set_id = EXCLUDED.set_id,
 			    card_type = EXCLUDED.card_type,
 			    direction = EXCLUDED.direction,
 			    front_text = EXCLUDED.front_text,
@@ -284,24 +271,9 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 			    answer_tokens = EXCLUDED.answer_tokens,
 			    deleted_at = NULL,
 			    updated_at = now()
-		`, card.ID, DemoUserID, card.SubjectID, card.FrontText, card.AnswerText, string(grammarJSON), string(tokenJSON))
+		`, card.ID, DemoUserID, card.SetID, card.FrontText, card.AnswerText, string(grammarJSON), string(tokenJSON))
 		if err != nil {
 			return fmt.Errorf("ensure demo card %q: %w", card.ID, err)
-		}
-
-		_, err = tx.Exec(ctx, `DELETE FROM card_tags WHERE card_id = $1`, card.ID)
-		if err != nil {
-			return fmt.Errorf("reset demo card tags %q: %w", card.ID, err)
-		}
-		for _, tagID := range card.TagIDs {
-			_, err = tx.Exec(ctx, `
-				INSERT INTO card_tags (card_id, tag_id)
-				VALUES ($1, $2)
-				ON CONFLICT DO NOTHING
-			`, card.ID, tagID)
-			if err != nil {
-				return fmt.Errorf("attach demo tag %q to %q: %w", tagID, card.ID, err)
-			}
 		}
 
 		_, err = tx.Exec(ctx, `
@@ -364,7 +336,14 @@ CREATE TABLE IF NOT EXISTS subjects (
   UNIQUE(user_id, name)
 );
 
-CREATE TABLE IF NOT EXISTS tags (
+DO $$
+BEGIN
+  IF to_regclass('public.sets') IS NULL AND to_regclass('public.tags') IS NOT NULL THEN
+    ALTER TABLE tags RENAME TO sets;
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS sets (
   id UUID PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id),
   subject_id UUID NOT NULL REFERENCES subjects(id),
@@ -375,10 +354,22 @@ CREATE TABLE IF NOT EXISTS tags (
   UNIQUE(user_id, subject_id, name)
 );
 
+DO $$
+BEGIN
+  IF to_regclass('public.card_tags') IS NOT NULL AND EXISTS (
+    SELECT 1
+    FROM card_tags
+    GROUP BY card_id
+    HAVING COUNT(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'cannot migrate card_tags: some cards belong to multiple sets';
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS cards (
   id UUID PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id),
-  subject_id UUID NOT NULL REFERENCES subjects(id),
+  set_id UUID NOT NULL REFERENCES sets(id),
   card_type TEXT NOT NULL DEFAULT 'sentence',
   direction TEXT NOT NULL DEFAULT 'zh_to_en',
   front_text TEXT NOT NULL,
@@ -390,12 +381,33 @@ CREATE TABLE IF NOT EXISTS cards (
   deleted_at TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS card_tags (
-  card_id UUID NOT NULL REFERENCES cards(id),
-  tag_id UUID NOT NULL REFERENCES tags(id),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY(card_id, tag_id)
-);
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS set_id UUID REFERENCES sets(id);
+
+DO $$
+BEGIN
+  IF to_regclass('public.card_tags') IS NOT NULL THEN
+    UPDATE cards c
+    SET set_id = ct.tag_id
+    FROM card_tags ct
+    WHERE c.id = ct.card_id
+      AND c.set_id IS NULL;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM cards
+    WHERE deleted_at IS NULL AND set_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'cannot migrate cards: some active cards have no set';
+  END IF;
+END $$;
+
+ALTER TABLE cards ALTER COLUMN set_id SET NOT NULL;
+ALTER TABLE cards DROP COLUMN IF EXISTS subject_id;
+DROP TABLE IF EXISTS card_tags;
 
 CREATE TABLE IF NOT EXISTS review_states (
   card_id UUID PRIMARY KEY REFERENCES cards(id),
@@ -531,8 +543,8 @@ CREATE TABLE IF NOT EXISTS auth_provider_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_subjects_user_active ON subjects(user_id) WHERE deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_tags_subject_active ON tags(subject_id) WHERE deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_cards_subject_active ON cards(subject_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_sets_subject_active ON sets(subject_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_cards_set_active ON cards(set_id) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_review_states_due ON review_states(due_at) WHERE status NOT IN ('deleted', 'mastered');
 CREATE INDEX IF NOT EXISTS idx_users_email_active ON users(lower(email)) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_auth_codes_identifier ON auth_verification_codes(identifier, purpose, created_at DESC);

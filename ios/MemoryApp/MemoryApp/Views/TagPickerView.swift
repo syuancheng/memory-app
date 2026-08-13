@@ -1,13 +1,13 @@
 import SwiftUI
 
-struct TagPickerView: View {
+struct SetPickerView: View {
     let subject: AppSubject
     let mode: StudyMode
     let onStart: (StudySessionConfig) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var tags: [AppTag] = []
-    @State private var selection: TagSelectionState = .all
+    @State private var sets: [AppSet] = []
+    @State private var selection: SetSelectionState = .all
     @State private var isLoading = false
     @State private var errorMessage: String?
 
@@ -15,12 +15,12 @@ struct TagPickerView: View {
         selection.isAll
     }
 
-    private var selectedTagIDs: [String] {
+    private var selectedSetIDs: [String] {
         switch selection {
         case .all:
-            return tags.map(\.id)
+            return sets.map(\.id)
         case .specific(let ids):
-            return tags.filter { ids.contains($0.id) }.map(\.id)
+            return sets.filter { ids.contains($0.id) }.map(\.id)
         }
     }
 
@@ -29,14 +29,14 @@ struct TagPickerView: View {
         case .all:
             return subject.dueCount
         case .specific(let ids):
-            return tags
+            return sets
                 .filter { ids.contains($0.id) }
                 .reduce(0) { $0 + $1.dueCount }
         }
     }
 
     private var canStart: Bool {
-        selectedDueCount > 0 && !selectedTagIDs.isEmpty
+        selectedDueCount > 0 && !selectedSetIDs.isEmpty
     }
 
     private var primaryTitle: String {
@@ -71,15 +71,15 @@ struct TagPickerView: View {
                     }
                     .buttonStyle(StudySelectionPressStyle())
 
-                    ForEach(tags) { tag in
+                    ForEach(sets) { set in
                         Button {
-                            toggle(tag)
+                            toggle(set)
                         } label: {
                             StudySelectionRow(
-                                title: tag.name,
-                                subtitle: "\(tag.dueCount) due · \(tag.cardCount) cards",
-                                count: tag.dueCount,
-                                isSelected: isTagSelected(tag)
+                                title: set.name,
+                                subtitle: "\(set.dueCount) due · \(set.cardCount) cards",
+                                count: set.dueCount,
+                                isSelected: isSetSelected(set)
                             )
                         }
                         .buttonStyle(StudySelectionPressStyle())
@@ -94,7 +94,7 @@ struct TagPickerView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            if !isLoading && errorMessage == nil && tags.isEmpty {
+            if !isLoading && errorMessage == nil && sets.isEmpty {
                 AppEmptyState(
                     title: "No sets yet",
                     message: "This subject has no sets, so \"All\" covers everything.",
@@ -119,7 +119,7 @@ struct TagPickerView: View {
                     StudySessionConfig(
                         mode: mode,
                         subject: subject,
-                        selectedTagIDs: selectedTagIDs
+                        selectedSetIDs: selectedSetIDs
                     )
                 )
             }
@@ -134,15 +134,15 @@ struct TagPickerView: View {
             }
         }
         .task {
-            await loadTags()
+            await loadSets()
         }
     }
 
-    private func loadTags() async {
+    private func loadSets() async {
         isLoading = true
         errorMessage = nil
         do {
-            tags = try await APIClient.shared.listTags(subjectID: subject.id)
+            sets = try await APIClient.shared.listSets(subjectID: subject.id)
             selection = .all
         } catch {
             errorMessage = error.localizedDescription
@@ -150,30 +150,30 @@ struct TagPickerView: View {
         isLoading = false
     }
 
-    private func isTagSelected(_ tag: AppTag) -> Bool {
+    private func isSetSelected(_ set: AppSet) -> Bool {
         switch selection {
         case .all:
             return false
         case .specific(let ids):
-            return ids.contains(tag.id)
+            return ids.contains(set.id)
         }
     }
 
-    private func toggle(_ tag: AppTag) {
+    private func toggle(_ set: AppSet) {
         var ids: Set<String>
         switch selection {
         case .all:
-            ids = [tag.id]
+            ids = [set.id]
         case .specific(let currentIDs):
             ids = currentIDs
-            if ids.contains(tag.id) {
-                ids.remove(tag.id)
+            if ids.contains(set.id) {
+                ids.remove(set.id)
             } else {
-                ids.insert(tag.id)
+                ids.insert(set.id)
             }
         }
 
-        if ids.count == tags.count || ids.isEmpty {
+        if ids.count == sets.count || ids.isEmpty {
             selection = .all
         } else {
             selection = .specific(ids)
@@ -181,7 +181,7 @@ struct TagPickerView: View {
     }
 }
 
-private enum TagSelectionState: Hashable {
+private enum SetSelectionState: Hashable {
     case all
     case specific(Set<String>)
 

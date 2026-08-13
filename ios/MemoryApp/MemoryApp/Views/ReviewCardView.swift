@@ -62,8 +62,8 @@ struct ReviewCardView: View {
     }
 
     private var contextText: String {
-        let tag = card.tags.first?.name ?? mode.title
-        return "\(card.subjectName ?? "English") · \(tag)"
+        let setName = card.set.name.isEmpty ? mode.title : card.set.name
+        return "\(card.subjectName ?? "English") · \(setName)"
     }
 
     var body: some View {

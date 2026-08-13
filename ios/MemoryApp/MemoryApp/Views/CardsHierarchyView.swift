@@ -11,7 +11,7 @@ struct CardsHierarchyView: View {
 
 private struct CardsRootPage: View {
     @State private var subjects: [AppSubject] = []
-    @State private var tagsBySubjectID: [String: [AppTag]] = [:]
+    @State private var setsBySubjectID: [String: [AppSet]] = [:]
     @State private var cards: [ReviewCard] = []
     @State private var subjectMetadata: [String: SubjectPresentation] = [:]
     @State private var searchText = ""
@@ -30,15 +30,15 @@ private struct CardsRootPage: View {
         return subjects.filter { subject in
             subject.name.normalizedQuery.contains(query)
                 || subjectDescription(subject).normalizedQuery.contains(query)
-                || (tagsBySubjectID[subject.id] ?? []).contains { $0.name.normalizedQuery.contains(query) }
+                || (setsBySubjectID[subject.id] ?? []).contains { $0.name.normalizedQuery.contains(query) }
                 || cards.contains { card in
-                    card.subjectID == subject.id
-                        && (card.frontText.normalizedQuery.contains(query)
-                            || card.answerText.normalizedQuery.contains(query)
-                            || card.tags.contains { $0.name.normalizedQuery.contains(query) })
-                }
-        }
-    }
+	                    card.subjectID == subject.id
+	                        && (card.frontText.normalizedQuery.contains(query)
+	                            || card.answerText.normalizedQuery.contains(query)
+	                            || card.set.name.normalizedQuery.contains(query))
+	                }
+	        }
+	    }
 
     var body: some View {
         CardsManagementPage(
@@ -68,7 +68,7 @@ private struct CardsRootPage: View {
                             subject: subject,
                             initial: subjectInitial(subject, metadata: subjectMetadata[subject.id]),
                             description: subjectDisplayDescription(subject, metadata: subjectMetadata[subject.id]),
-                            setCount: tagsBySubjectID[subject.id]?.count ?? 0,
+                            setCount: setsBySubjectID[subject.id]?.count ?? 0,
                             tint: subjectTint(subject, metadata: subjectMetadata[subject.id]),
                             onOpen: {
                                 selectedSubject = subject
@@ -174,19 +174,18 @@ private struct CardsRootPage: View {
         isLoading = true
         errorMessage = nil
         do {
-            async let loadedSubjects = APIClient.shared.listSubjects()
-            async let loadedCards = APIClient.shared.listCards()
-            let resolvedSubjects = try await loadedSubjects
-            let resolvedCards = try await loadedCards
+	            async let loadedSubjects = APIClient.shared.listSubjects()
+	            async let loadedSets = APIClient.shared.listSets()
+	            async let loadedCards = APIClient.shared.listCards()
+	            let resolvedSubjects = try await loadedSubjects
+	            let resolvedSets = try await loadedSets
+	            let resolvedCards = try await loadedCards
 
-            var tagMap: [String: [AppTag]] = [:]
-            for subject in resolvedSubjects {
-                tagMap[subject.id] = try await APIClient.shared.listTags(subjectID: subject.id)
-            }
+	            let setMap = Dictionary(grouping: resolvedSets, by: \.subjectID)
 
             subjects = resolvedSubjects
             cards = resolvedCards
-            tagsBySubjectID = tagMap
+            setsBySubjectID = setMap
             subjectMetadata = CardsMetadataStore.subjectMetadata()
         } catch {
             errorMessage = error.localizedDescription
@@ -209,17 +208,17 @@ private struct SubjectSetsPage: View {
     let subject: AppSubject
 
     @Environment(\.dismiss) private var dismiss
-    @State private var sets: [AppTag] = []
+    @State private var sets: [AppSet] = []
     @State private var cards: [ReviewCard] = []
     @State private var setMetadata: [String: SetPresentation] = [:]
     @State private var searchText = ""
-    @State private var selectedSet: AppTag?
+    @State private var selectedSet: AppSet?
     @State private var activeSheet: CardsSheet?
-    @State private var deletingSet: AppTag?
+    @State private var deletingSet: AppSet?
     @State private var isLoading = false
     @State private var errorMessage: String?
 
-    private var filteredSets: [AppTag] {
+    private var filteredSets: [AppSet] {
         let query = searchText.normalizedQuery
         guard !query.isEmpty else {
             return sets
@@ -227,12 +226,12 @@ private struct SubjectSetsPage: View {
 
         return sets.filter { set in
             set.name.normalizedQuery.contains(query)
-                || setDescription(set, subject: subject).normalizedQuery.contains(query)
-                || cards.contains { card in
-                    card.tags.contains { $0.id == set.id }
-                        && (card.frontText.normalizedQuery.contains(query)
-                            || card.answerText.normalizedQuery.contains(query))
-                }
+	                || setDescription(set, subject: subject).normalizedQuery.contains(query)
+	                || cards.contains { card in
+	                    card.set.id == set.id
+	                        && (card.frontText.normalizedQuery.contains(query)
+	                            || card.answerText.normalizedQuery.contains(query))
+	                }
         }
     }
 
@@ -355,7 +354,7 @@ private struct SubjectSetsPage: View {
         isLoading = true
         errorMessage = nil
         do {
-            async let loadedSets = APIClient.shared.listTags(subjectID: subject.id)
+            async let loadedSets = APIClient.shared.listSets(subjectID: subject.id)
             async let loadedCards = APIClient.shared.listCards(subjectID: subject.id)
             sets = try await loadedSets
             cards = try await loadedCards
@@ -366,9 +365,9 @@ private struct SubjectSetsPage: View {
         isLoading = false
     }
 
-    private func delete(_ set: AppTag) async {
+    private func delete(_ set: AppSet) async {
         do {
-            try await APIClient.shared.deleteTag(subjectID: subject.id, tagID: set.id)
+            try await APIClient.shared.deleteSet(subjectID: subject.id, setID: set.id)
             deletingSet = nil
             await loadData()
         } catch {
@@ -379,7 +378,7 @@ private struct SubjectSetsPage: View {
 
 private struct SetCardsPage: View {
     let subject: AppSubject
-    let set: AppTag
+    let set: AppSet
 
     @Environment(\.dismiss) private var dismiss
     @State private var cards: [ReviewCard] = []
@@ -395,11 +394,11 @@ private struct SetCardsPage: View {
             return cards
         }
 
-        return cards.filter { card in
-            card.frontText.normalizedQuery.contains(query)
-                || card.answerText.normalizedQuery.contains(query)
-                || card.tags.contains { $0.name.normalizedQuery.contains(query) }
-        }
+	        return cards.filter { card in
+	            card.frontText.normalizedQuery.contains(query)
+	                || card.answerText.normalizedQuery.contains(query)
+	                || card.set.name.normalizedQuery.contains(query)
+	        }
     }
 
     var body: some View {
@@ -500,7 +499,7 @@ private struct SetCardsPage: View {
         isLoading = true
         errorMessage = nil
         do {
-            cards = try await APIClient.shared.listCards(subjectID: subject.id, tagIDs: [set.id])
+            cards = try await APIClient.shared.listCards(subjectID: subject.id, setIDs: [set.id])
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -522,8 +521,8 @@ private enum CardsSheet: Identifiable {
     case addSubject
     case editSubject(AppSubject)
     case addSet(AppSubject?)
-    case editSet(AppSubject, AppTag)
-    case addCard(AppSubject?, AppTag?)
+    case editSet(AppSubject, AppSet)
+    case addCard(AppSubject?, AppSet?)
     case editCard(ReviewCard, AppSubject?)
 
     var id: String {
@@ -747,7 +746,7 @@ private struct CardsSubjectRow: View {
 }
 
 private struct CardsSetRow: View {
-    let set: AppTag
+    let set: AppSet
     let description: String
     let onOpen: () -> Void
     let onEdit: () -> Void
@@ -1003,7 +1002,7 @@ private struct SubjectEditPage: View {
 private struct SetEditPage: View {
     let subjects: [AppSubject]
     let fixedSubject: AppSubject?
-    let set: AppTag?
+    let set: AppSet?
     let metadata: SetPresentation?
     let onDone: () async -> Void
 
@@ -1016,7 +1015,7 @@ private struct SetEditPage: View {
     @State private var errorMessage: String?
     @State private var showingDeleteConfirmation = false
 
-    init(subjects: [AppSubject], fixedSubject: AppSubject?, set: AppTag?, metadata: SetPresentation?, onDone: @escaping () async -> Void) {
+    init(subjects: [AppSubject], fixedSubject: AppSubject?, set: AppSet?, metadata: SetPresentation?, onDone: @escaping () async -> Void) {
         self.subjects = subjects
         self.fixedSubject = fixedSubject
         self.set = set
@@ -1105,11 +1104,11 @@ private struct SetEditPage: View {
         isSaving = true
         errorMessage = nil
         do {
-            let savedSet: AppTag
+            let savedSet: AppSet
             if let set {
-                savedSet = try await APIClient.shared.updateTag(subjectID: set.subjectID, tagID: set.id, name: name.trimmed)
+                savedSet = try await APIClient.shared.updateSet(subjectID: set.subjectID, setID: set.id, name: name.trimmed)
             } else {
-                savedSet = try await APIClient.shared.createTag(subjectID: selectedSubjectID, name: name.trimmed)
+                savedSet = try await APIClient.shared.createSet(subjectID: selectedSubjectID, name: name.trimmed)
             }
 
             CardsMetadataStore.saveSetMetadata(
@@ -1131,7 +1130,7 @@ private struct SetEditPage: View {
         isSaving = true
         errorMessage = nil
         do {
-            try await APIClient.shared.deleteTag(subjectID: set.subjectID, tagID: set.id)
+            try await APIClient.shared.deleteSet(subjectID: set.subjectID, setID: set.id)
             CardsMetadataStore.removeSetMetadata(set.id)
             dismiss()
             await onDone()
@@ -1146,12 +1145,12 @@ private struct CardEditPage: View {
     let card: ReviewCard?
     let subjects: [AppSubject]
     let fixedSubject: AppSubject?
-    let fixedSet: AppTag?
+    let fixedSet: AppSet?
     let onDone: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedSubjectID: String
-    @State private var availableSets: [AppTag] = []
+    @State private var availableSets: [AppSet] = []
     @State private var selectedSetID: String
     @State private var cardType: CardsCardType
     @State private var frontText: String
@@ -1161,7 +1160,7 @@ private struct CardEditPage: View {
     @State private var errorMessage: String?
     @State private var showingDeleteConfirmation = false
 
-    init(card: ReviewCard?, subjects: [AppSubject], fixedSubject: AppSubject?, fixedSet: AppTag?, onDone: @escaping () async -> Void) {
+    init(card: ReviewCard?, subjects: [AppSubject], fixedSubject: AppSubject?, fixedSet: AppSet?, onDone: @escaping () async -> Void) {
         self.card = card
         self.subjects = subjects
         self.fixedSubject = fixedSubject
@@ -1169,7 +1168,7 @@ private struct CardEditPage: View {
         self.onDone = onDone
 
         let initialSubjectID = fixedSubject?.id ?? card?.subjectID ?? subjects.first?.id ?? ""
-        let initialSetID = fixedSet?.id ?? card?.tags.first?.id ?? ""
+	        let initialSetID = fixedSet?.id ?? card?.set.id ?? ""
         _selectedSubjectID = State(initialValue: initialSubjectID)
         _selectedSetID = State(initialValue: initialSetID)
         _cardType = State(initialValue: CardsCardType(normalizing: card?.cardType))
@@ -1295,7 +1294,7 @@ private struct CardEditPage: View {
         }
 
         do {
-            availableSets = try await APIClient.shared.listTags(subjectID: selectedSubjectID)
+            availableSets = try await APIClient.shared.listSets(subjectID: selectedSubjectID)
             if let fixedSet {
                 selectedSetID = fixedSet.id
             } else if resetSelection || !availableSets.contains(where: { $0.id == selectedSetID }) {
@@ -1313,11 +1312,9 @@ private struct CardEditPage: View {
 
         isSaving = true
         errorMessage = nil
-        let tagIDs = selectedSetID.isEmpty ? [] : [selectedSetID]
-        let payload = CardPayload(
-            subjectID: selectedSubjectID,
-            tagIDs: tagIDs,
-            cardType: cardType.rawValue,
+	        let payload = CardPayload(
+	            setID: selectedSetID,
+	            cardType: cardType.rawValue,
             direction: CardDirection.detected(fromFront: frontText.trimmed).rawValue,
             frontText: frontText.trimmed,
             answerText: answerText.trimmed,
@@ -1721,7 +1718,7 @@ private func rowTint(for subject: AppSubject) -> AppColor.SubjectAccent {
     return palette[abs(subject.id.hashValue) % palette.count]
 }
 
-private func rowTint(for set: AppTag) -> AppColor.SubjectAccent {
+private func rowTint(for set: AppSet) -> AppColor.SubjectAccent {
     let palette = AppColor.subjectAccents
     return palette[abs(set.id.hashValue) % palette.count]
 }
@@ -1747,7 +1744,7 @@ private func subjectDisplayDescription(_ subject: AppSubject, metadata: SubjectP
     return description
 }
 
-private func setDisplayDescription(_ set: AppTag, subject: AppSubject, metadata: SetPresentation?) -> String {
+private func setDisplayDescription(_ set: AppSet, subject: AppSubject, metadata: SetPresentation?) -> String {
     guard let description = metadata?.description.trimmed, !description.isEmpty else {
         return setDescription(set, subject: subject)
     }
@@ -1767,7 +1764,7 @@ private func subjectDescription(_ subject: AppSubject) -> String {
     }
 }
 
-private func setDescription(_ set: AppTag, subject: AppSubject) -> String {
+private func setDescription(_ set: AppSet, subject: AppSubject) -> String {
     switch set.name.normalizedQuery {
     case "polite requests":
         return "Softer ways to ask, follow up, and confirm"
@@ -1781,9 +1778,6 @@ private func setDescription(_ set: AppTag, subject: AppSubject) -> String {
 }
 
 private func cardMetadata(_ card: ReviewCard) -> String {
-    let subjectName = card.subjectName ?? "English"
-    if let tag = card.tags.first {
-        return "\(subjectName) · \(tag.name)"
-    }
-    return subjectName
-}
+	    let subjectName = card.subjectName ?? "English"
+	    return "\(subjectName) · \(card.set.name)"
+	}
