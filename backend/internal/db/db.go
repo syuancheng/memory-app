@@ -175,14 +175,24 @@ CREATE TABLE IF NOT EXISTS auth_provider_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_subjects_user_active ON subjects(user_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_subjects_user_name_active ON subjects(user_id, name) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_sets_subject_active ON sets(subject_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_sets_user_name_active ON sets(user_id, name) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_sets_user_subject_name_active ON sets(user_id, subject_id, name) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_cards_set_active ON cards(set_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_cards_user_set_active ON cards(user_id, set_id, created_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_cards_user_subject_active ON cards(user_id, subject_id, created_at DESC) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_review_states_due ON review_states(due_at) WHERE status NOT IN ('deleted', 'mastered');
+CREATE INDEX IF NOT EXISTS idx_review_states_active_due_card ON review_states(due_at, card_id) WHERE status NOT IN ('deleted', 'mastered');
+CREATE INDEX IF NOT EXISTS idx_review_events_user_created_at ON review_events(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_users_email_active ON users(lower(email)) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_auth_codes_identifier ON auth_verification_codes(identifier, purpose, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_auth_codes_active_lookup ON auth_verification_codes(identifier_type, identifier, purpose, created_at DESC) WHERE consumed_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_token_active ON auth_sessions(token_hash) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_identities_user ON identities(user_id);
 CREATE INDEX IF NOT EXISTS mcp_tokens_user_idx ON mcp_tokens(user_id) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_mcp_tokens_user_created_active ON mcp_tokens(user_id, created_at DESC) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_account_connections_user ON account_connections(user_id);
+CREATE INDEX IF NOT EXISTS idx_auth_provider_tokens_user_active ON auth_provider_tokens(user_id) WHERE revoked_at IS NULL;
 `
