@@ -5,7 +5,7 @@ export type Subject = {
   due_count: number;
 };
 
-export type Tag = {
+export type Set = {
   id: string;
   subject_id: string;
   name: string;
@@ -27,7 +27,8 @@ export type Card = {
   id: string;
   subject_id: string;
   subject_name?: string;
-  tags: Tag[];
+  set_id: string;
+  set: Set;
   card_type: string;
   direction: string;
   front_text: string;
@@ -39,8 +40,7 @@ export type Card = {
 };
 
 export type CardPayload = {
-  subject_id: string;
-  tag_ids: string[];
+  set_id: string;
   card_type: string;
   direction: string;
   front_text: string;
@@ -138,19 +138,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name })
     }),
-  listTags: (subjectID: string) => request<Tag[]>(`/subjects/${subjectID}/tags`),
-  createTag: (subjectID: string, name: string) =>
-    request<Tag>(`/subjects/${subjectID}/tags`, {
+  listSets: (subjectID: string) => request<Set[]>(`/subjects/${subjectID}/sets`),
+  createSet: (subjectID: string, name: string) =>
+    request<Set>(`/subjects/${subjectID}/sets`, {
       method: "POST",
       body: JSON.stringify({ name })
     }),
-  listCards: (params: { subject_id?: string; tag_ids?: string[]; search?: string } = {}) => {
+  listCards: (params: { subject_id?: string; set_ids?: string[]; search?: string } = {}) => {
     const search = new URLSearchParams();
     if (params.subject_id) {
       search.set("subject_id", params.subject_id);
     }
-    if (params.tag_ids && params.tag_ids.length > 0) {
-      search.set("tag_ids", params.tag_ids.join(","));
+    if (params.set_ids && params.set_ids.length > 0) {
+      search.set("set_ids", params.set_ids.join(","));
     }
     if (params.search) {
       search.set("search", params.search);

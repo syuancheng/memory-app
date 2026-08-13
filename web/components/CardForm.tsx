@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, CardPayload, GrammarPhrase, Subject, Tag } from "@/lib/api";
+import { api, CardPayload, GrammarPhrase, Set, Subject } from "@/lib/api";
 
 type Props = {
   mode: "new" | "edit";
@@ -14,14 +14,14 @@ const emptyPhrase: GrammarPhrase = { text: "", note: "" };
 export default function CardForm({ mode, cardID }: Props) {
   const router = useRouter();
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [tags, setTags] = useState<Tag[]>([]);
+  const [sets, setSets] = useState<Set[]>([]);
   const [subjectID, setSubjectID] = useState("");
-  const [tagIDs, setTagIDs] = useState<string[]>([]);
+  const [setID, setSetID] = useState("");
   const [frontText, setFrontText] = useState("");
   const [answerText, setAnswerText] = useState("");
   const [phrases, setPhrases] = useState<GrammarPhrase[]>([{ ...emptyPhrase }]);
   const [newSubjectName, setNewSubjectName] = useState("");
-  const [newTagName, setNewTagName] = useState("");
+  const [newSetName, setNewSetName] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -45,7 +45,7 @@ export default function CardForm({ mode, cardID }: Props) {
       .getCard(cardID)
       .then((card) => {
         setSubjectID(card.subject_id);
-        setTagIDs(card.tags.map((tag) => tag.id));
+        setSetID(card.set_id);
         setFrontText(card.front_text);
         setAnswerText(card.answer_text);
         setPhrases(card.grammar_phrases.length > 0 ? card.grammar_phrases : [{ ...emptyPhrase }]);
@@ -55,15 +55,15 @@ export default function CardForm({ mode, cardID }: Props) {
 
   useEffect(() => {
     if (!subjectID) {
-      setTags([]);
-      setTagIDs([]);
+      setSets([]);
+      setSetID("");
       return;
     }
     api
-      .listTags(subjectID)
+      .listSets(subjectID)
       .then((items) => {
-        setTags(items);
-        setTagIDs((current) => current.filter((id) => items.some((tag) => tag.id === id)));
+        setSets(items);
+        setSetID((current) => (items.some((set) => set.id === current) ? current : ""));
       })
       .catch((err: Error) => setError(err.message));
   }, [subjectID]);
@@ -84,26 +84,20 @@ export default function CardForm({ mode, cardID }: Props) {
     }
   }
 
-  async function createTag() {
-    const name = newTagName.trim();
+  async function createSet() {
+    const name = newSetName.trim();
     if (!subjectID || !name) {
       return;
     }
     try {
-      const tag = await api.createTag(subjectID, name);
-      setTags((current) => [...current, tag].sort((a, b) => a.name.localeCompare(b.name)));
-      setTagIDs((current) => [...current, tag.id]);
-      setNewTagName("");
+      const set = await api.createSet(subjectID, name);
+      setSets((current) => [...current, set].sort((a, b) => a.name.localeCompare(b.name)));
+      setSetID(set.id);
+      setNewSetName("");
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create tag");
+      setError(err instanceof Error ? err.message : "Could not create set");
     }
-  }
-
-  function toggleTag(tagID: string) {
-    setTagIDs((current) =>
-      current.includes(tagID) ? current.filter((id) => id !== tagID) : [...current, tagID]
-    );
   }
 
   function updatePhrase(index: number, key: keyof GrammarPhrase, value: string) {
@@ -125,8 +119,8 @@ export default function CardForm({ mode, cardID }: Props) {
       setError("Select a subject before saving.");
       return;
     }
-    if (tagIDs.length === 0) {
-      setError("Select at least one tag before saving.");
+    if (!setID) {
+      setError("Select a set before saving.");
       return;
     }
     if (!frontText.trim() || !answerText.trim()) {
@@ -135,8 +129,7 @@ export default function CardForm({ mode, cardID }: Props) {
     }
     setSaving(true);
     const payload: CardPayload = {
-      subject_id: subjectID,
-      tag_ids: tagIDs,
+      set_id: setID,
       card_type: "speaking_expression",
       direction: "zh_to_en",
       front_text: frontText,
@@ -258,19 +251,20 @@ export default function CardForm({ mode, cardID }: Props) {
               </select>
             </div>
             <div className="field">
-              <span className="label">Tags</span>
+              <span className="label">Set</span>
               <div className="checkboxGrid">
-                {tags.map((tag) => (
-                  <label className="checkboxRow" key={tag.id}>
+                {sets.map((set) => (
+                  <label className="checkboxRow" key={set.id}>
                     <input
-                      type="checkbox"
-                      checked={tagIDs.includes(tag.id)}
-                      onChange={() => toggleTag(tag.id)}
+                      type="radio"
+                      name="set"
+                      checked={setID === set.id}
+                      onChange={() => setSetID(set.id)}
                     />
-                    <span>{tag.name}</span>
+                    <span>{set.name}</span>
                   </label>
                 ))}
-                {tags.length === 0 && <div className="empty">No tags in this subject.</div>}
+                {sets.length === 0 && <div className="empty">No sets in this subject.</div>}
               </div>
             </div>
           </div>
@@ -290,16 +284,16 @@ export default function CardForm({ mode, cardID }: Props) {
               </button>
             </div>
             <div className="field">
-              <label htmlFor="newTag">New tag</label>
+              <label htmlFor="newSet">New set</label>
               <input
-                id="newTag"
-                value={newTagName}
-                onChange={(event) => setNewTagName(event.target.value)}
-                placeholder="Work Expression"
+                id="newSet"
+                value={newSetName}
+                onChange={(event) => setNewSetName(event.target.value)}
+                placeholder="Speaking"
                 disabled={!subjectID}
               />
-              <button type="button" className="secondary" onClick={createTag} disabled={!subjectID}>
-                Add tag
+              <button type="button" className="secondary" onClick={createSet} disabled={!subjectID}>
+                Add set
               </button>
             </div>
           </div>

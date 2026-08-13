@@ -253,17 +253,18 @@ func EnsureDemoData(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 
 		_, err = tx.Exec(ctx, `
-			INSERT INTO cards (
-				id, user_id, set_id, card_type, direction, front_text, answer_text,
-				grammar_phrases, answer_tokens, deleted_at, updated_at
-			) VALUES (
-				$1, $2, $3, 'sentence', 'zh_to_en', $4, $5,
-				$6::jsonb, $7::jsonb, NULL, now()
-			)
-			ON CONFLICT (id) DO UPDATE
-			SET user_id = EXCLUDED.user_id,
-			    set_id = EXCLUDED.set_id,
-			    card_type = EXCLUDED.card_type,
+				INSERT INTO cards (
+					id, user_id, subject_id, set_id, card_type, direction, front_text, answer_text,
+					grammar_phrases, answer_tokens, deleted_at, updated_at
+				) VALUES (
+					$1, $2, (SELECT subject_id FROM sets WHERE id = $3), $3, 'sentence', 'zh_to_en', $4, $5,
+					$6::jsonb, $7::jsonb, NULL, now()
+				)
+				ON CONFLICT (id) DO UPDATE
+				SET user_id = EXCLUDED.user_id,
+				    subject_id = EXCLUDED.subject_id,
+				    set_id = EXCLUDED.set_id,
+				    card_type = EXCLUDED.card_type,
 			    direction = EXCLUDED.direction,
 			    front_text = EXCLUDED.front_text,
 			    answer_text = EXCLUDED.answer_text,
@@ -350,6 +351,7 @@ CREATE TABLE IF NOT EXISTS sets (
 CREATE TABLE IF NOT EXISTS cards (
   id UUID PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id),
+  subject_id UUID NOT NULL REFERENCES subjects(id),
   set_id UUID NOT NULL REFERENCES sets(id),
   card_type TEXT NOT NULL DEFAULT 'sentence',
   direction TEXT NOT NULL DEFAULT 'zh_to_en',
@@ -363,6 +365,13 @@ CREATE TABLE IF NOT EXISTS cards (
 );
 
 ALTER TABLE cards ADD COLUMN IF NOT EXISTS set_id UUID REFERENCES sets(id);
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS subject_id UUID REFERENCES subjects(id);
+
+UPDATE cards c
+SET subject_id = st.subject_id
+FROM sets st
+WHERE c.set_id = st.id
+  AND c.subject_id IS NULL;
 
 DO $$
 BEGIN
@@ -373,12 +382,21 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'cannot migrate cards: some active cards have no set';
   END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM cards c
+    LEFT JOIN sets st ON st.id = c.set_id
+    WHERE c.deleted_at IS NULL
+      AND (c.subject_id IS NULL OR st.subject_id IS DISTINCT FROM c.subject_id)
+  ) THEN
+    RAISE EXCEPTION 'cannot migrate cards: some active cards have inconsistent subject/set';
+  END IF;
 END $$;
 
 ALTER TABLE cards ALTER COLUMN set_id SET NOT NULL;
+ALTER TABLE cards ALTER COLUMN subject_id SET NOT NULL;
 DROP TABLE IF EXISTS card_tags;
 DROP TABLE IF EXISTS tags;
-ALTER TABLE cards DROP COLUMN IF EXISTS subject_id;
 
 CREATE TABLE IF NOT EXISTS review_states (
   card_id UUID PRIMARY KEY REFERENCES cards(id),

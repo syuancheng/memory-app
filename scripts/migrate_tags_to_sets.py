@@ -111,6 +111,7 @@ BEGIN
 END $$;
 
 ALTER TABLE cards ADD COLUMN IF NOT EXISTS set_id UUID REFERENCES sets(id);
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS subject_id UUID REFERENCES subjects(id);
 
 DO $$
 BEGIN
@@ -125,6 +126,12 @@ BEGIN
   END IF;
 END $$;
 
+UPDATE cards c
+SET subject_id = st.subject_id
+FROM sets st
+WHERE c.set_id = st.id
+  AND c.subject_id IS NULL;
+
 DO $$
 BEGIN
   IF EXISTS (
@@ -135,10 +142,19 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'cannot migrate: some active cards have no set';
   END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM cards c
+    LEFT JOIN sets st ON st.id = c.set_id
+    WHERE c.deleted_at IS NULL
+      AND (c.subject_id IS NULL OR st.subject_id IS DISTINCT FROM c.subject_id)
+  ) THEN
+    RAISE EXCEPTION 'cannot migrate: some active cards have inconsistent subject/set';
+  END IF;
 END $$;
 
 ALTER TABLE cards ALTER COLUMN set_id SET NOT NULL;
-ALTER TABLE cards DROP COLUMN IF EXISTS subject_id;
+ALTER TABLE cards ALTER COLUMN subject_id SET NOT NULL;
 DROP TABLE IF EXISTS card_tags;
 DROP TABLE IF EXISTS tags;
 

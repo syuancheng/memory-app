@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { api, Subject, Tag } from "@/lib/api";
+import { api, Set, Subject } from "@/lib/api";
 
 export default function SubjectsPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [selectedSubjectID, setSelectedSubjectID] = useState("");
-  const [tags, setTags] = useState<Tag[]>([]);
+  const [sets, setSets] = useState<Set[]>([]);
   const [subjectName, setSubjectName] = useState("");
-  const [tagName, setTagName] = useState("");
+  const [setName, setSetName] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -25,12 +25,12 @@ export default function SubjectsPage() {
 
   useEffect(() => {
     if (!selectedSubjectID) {
-      setTags([]);
+      setSets([]);
       return;
     }
     api
-      .listTags(selectedSubjectID)
-      .then(setTags)
+      .listSets(selectedSubjectID)
+      .then(setSets)
       .catch((err: Error) => setError(err.message));
   }, [selectedSubjectID]);
 
@@ -55,18 +55,18 @@ export default function SubjectsPage() {
     }
   }
 
-  async function createTag() {
-    const name = tagName.trim();
+  async function createSet() {
+    const name = setName.trim();
     if (!selectedSubjectID || !name) {
       return;
     }
     try {
-      const tag = await api.createTag(selectedSubjectID, name);
-      setTags((current) => [...current, tag].sort((a, b) => a.name.localeCompare(b.name)));
-      setTagName("");
+      const set = await api.createSet(selectedSubjectID, name);
+      setSets((current) => [...current, set].sort((a, b) => a.name.localeCompare(b.name)));
+      setSetName("");
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create tag");
+      setError(err instanceof Error ? err.message : "Could not create set");
     }
   }
 
@@ -77,7 +77,7 @@ export default function SubjectsPage() {
           <p className="eyebrow">Subjects</p>
           <h1>Organize your sets</h1>
           <p className="subtle">
-            Subjects group your study sets. Tags make each set easy to filter before review.
+            Subjects group your study sets. Sets make cards easy to filter before review.
           </p>
         </div>
         <div className="heroCard">
@@ -87,8 +87,8 @@ export default function SubjectsPage() {
               <span>subjects</span>
             </div>
             <div className="metric">
-              <strong>{tags.length}</strong>
-              <span>tags shown</span>
+              <strong>{sets.length}</strong>
+              <span>sets shown</span>
             </div>
           </div>
         </div>
@@ -100,7 +100,7 @@ export default function SubjectsPage() {
         <div className="libraryPanel stack">
           <div>
             <h2>Subjects</h2>
-            <p className="subtle">Choose a subject to manage its tags.</p>
+            <p className="subtle">Choose a subject to manage its sets.</p>
           </div>
           <div className="quickCreate">
             <div className="field">
@@ -139,36 +139,36 @@ export default function SubjectsPage() {
 
         <div className="libraryPanel stack">
           <div>
-            <h2>{selectedSubject ? selectedSubject.name : "Tags"}</h2>
-            <p className="subtle">Add focused tags for review filters and card creation.</p>
+            <h2>{selectedSubject ? selectedSubject.name : "Sets"}</h2>
+            <p className="subtle">Add focused sets for review filters and card creation.</p>
           </div>
           <div className="field">
-            <label htmlFor="tagName">New tag</label>
+            <label htmlFor="setName">New set</label>
             <div className="actions">
               <input
-                id="tagName"
-                value={tagName}
-                onChange={(event) => setTagName(event.target.value)}
+                id="setName"
+                value={setName}
+                onChange={(event) => setSetName(event.target.value)}
                 placeholder="Speaking"
                 disabled={!selectedSubjectID}
               />
-              <button className="secondary" onClick={createTag} disabled={!selectedSubjectID}>
+              <button className="secondary" onClick={createSet} disabled={!selectedSubjectID}>
                 Add
               </button>
             </div>
           </div>
 
           <div className="tagPanel">
-            {tags.map((tag) => (
-              <div className="tagRow" key={tag.id}>
-                <strong>{tag.name}</strong>
+            {sets.map((set) => (
+              <div className="tagRow" key={set.id}>
+                <strong>{set.name}</strong>
                 <span className="subjectStats">
-                  <span>{tag.card_count} cards</span>
-                  <span>{tag.due_count} due</span>
+                  <span>{set.card_count} cards</span>
+                  <span>{set.due_count} due</span>
                 </span>
               </div>
             ))}
-            {tags.length === 0 && <div className="empty">No tags yet.</div>}
+            {sets.length === 0 && <div className="empty">No sets yet.</div>}
           </div>
         </div>
       </div>

@@ -837,11 +837,11 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, userID string, cardID s
 	if cardID == "" {
 		cardID = uuid.NewString()
 		_, err = tx.Exec(ctx, `
-			INSERT INTO cards (
-				id, user_id, set_id, card_type, direction, front_text, answer_text,
-				grammar_phrases, answer_tokens
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb)
-		`, cardID, userID, req.SetID, req.CardType, req.Direction, strings.TrimSpace(req.FrontText), strings.TrimSpace(req.AnswerText), string(grammarJSON), string(tokensJSON))
+				INSERT INTO cards (
+					id, user_id, subject_id, set_id, card_type, direction, front_text, answer_text,
+					grammar_phrases, answer_tokens
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb)
+			`, cardID, userID, setSubjectID, req.SetID, req.CardType, req.Direction, strings.TrimSpace(req.FrontText), strings.TrimSpace(req.AnswerText), string(grammarJSON), string(tokensJSON))
 		if err != nil {
 			return model.Card{}, err
 		}
@@ -854,17 +854,18 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, userID string, cardID s
 		}
 	} else {
 		commandTag, err := tx.Exec(ctx, `
-			UPDATE cards
-			SET set_id = $3,
-			    card_type = $4,
-			    direction = $5,
-			    front_text = $6,
-			    answer_text = $7,
-			    grammar_phrases = $8::jsonb,
-			    answer_tokens = $9::jsonb,
-			    updated_at = now()
-			WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-		`, cardID, userID, req.SetID, req.CardType, req.Direction, strings.TrimSpace(req.FrontText), strings.TrimSpace(req.AnswerText), string(grammarJSON), string(tokensJSON))
+				UPDATE cards
+				SET subject_id = $3,
+				    set_id = $4,
+				    card_type = $5,
+				    direction = $6,
+				    front_text = $7,
+				    answer_text = $8,
+				    grammar_phrases = $9::jsonb,
+				    answer_tokens = $10::jsonb,
+				    updated_at = now()
+				WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+			`, cardID, userID, setSubjectID, req.SetID, req.CardType, req.Direction, strings.TrimSpace(req.FrontText), strings.TrimSpace(req.AnswerText), string(grammarJSON), string(tokensJSON))
 		if err != nil {
 			return model.Card{}, err
 		}

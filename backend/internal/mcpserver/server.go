@@ -407,10 +407,10 @@ func (t *Tools) createCard(ctx context.Context, userID string, input AddCardInpu
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO cards (
-			id, user_id, set_id, card_type, direction, front_text, answer_text,
+			id, user_id, subject_id, set_id, card_type, direction, front_text, answer_text,
 			grammar_phrases, answer_tokens
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb)
-	`, cardID, userID, input.SetID, input.CardType, input.Direction, input.FrontText, input.AnswerText, string(grammarJSON), string(tokensJSON))
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb)
+	`, cardID, userID, subjectID, input.SetID, input.CardType, input.Direction, input.FrontText, input.AnswerText, string(grammarJSON), string(tokensJSON))
 	if err != nil {
 		return model.Card{}, err
 	}

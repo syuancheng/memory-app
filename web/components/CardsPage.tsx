@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { api, Card, Subject, Tag } from "@/lib/api";
+import { api, Card, Set, Subject } from "@/lib/api";
 
 export default function CardsPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [tags, setTags] = useState<Tag[]>([]);
+  const [sets, setSets] = useState<Set[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [subjectID, setSubjectID] = useState("");
-  const [tagID, setTagID] = useState("");
+  const [setID, setSetID] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -23,13 +23,13 @@ export default function CardsPage() {
 
   useEffect(() => {
     if (!subjectID) {
-      setTags([]);
-      setTagID("");
+      setSets([]);
+      setSetID("");
       return;
     }
     api
-      .listTags(subjectID)
-      .then(setTags)
+      .listSets(subjectID)
+      .then(setSets)
       .catch((err: Error) => setError(err.message));
   }, [subjectID]);
 
@@ -38,13 +38,13 @@ export default function CardsPage() {
     api
       .listCards({
         subject_id: subjectID || undefined,
-        tag_ids: tagID ? [tagID] : undefined,
+        set_ids: setID ? [setID] : undefined,
         search: search || undefined
       })
       .then(setCards)
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [subjectID, tagID, search]);
+  }, [subjectID, setID, search]);
 
   const selectedSubject = useMemo(
     () => subjects.find((subject) => subject.id === subjectID),
@@ -68,7 +68,7 @@ export default function CardsPage() {
           <p className="eyebrow">Library</p>
           <h1>Your English study sets</h1>
           <p className="subtle">
-            Build focused sets for the iOS review app, then keep cards organized by subject and tag.
+            Build focused sets for the iOS review app, then keep cards organized by subject and set.
           </p>
         </div>
         <div className="heroCard">
@@ -113,17 +113,17 @@ export default function CardsPage() {
           </select>
         </div>
         <div className="field">
-          <label htmlFor="tag">Tag</label>
+          <label htmlFor="set">Set</label>
           <select
-            id="tag"
-            value={tagID}
-            onChange={(event) => setTagID(event.target.value)}
+            id="set"
+            value={setID}
+            onChange={(event) => setSetID(event.target.value)}
             disabled={!selectedSubject}
           >
-            <option value="">All tags</option>
-            {tags.map((tag) => (
-              <option key={tag.id} value={tag.id}>
-                {tag.name}
+            <option value="">All sets</option>
+            {sets.map((set) => (
+              <option key={set.id} value={set.id}>
+                {set.name}
               </option>
             ))}
           </select>
@@ -132,7 +132,7 @@ export default function CardsPage() {
           className="secondary"
           onClick={() => {
             setSubjectID("");
-            setTagID("");
+            setSetID("");
             setSearch("");
           }}
         >
@@ -167,16 +167,10 @@ export default function CardsPage() {
             </div>
 
             <div className="setMeta">
-              {card.tags.length > 0 ? (
-                <div className="tagList">
-                  {card.tags.map((tag) => (
-                    <span className="tag" key={tag.id}>
-                      {tag.name}
-                    </span>
-                  ))}
-                </div>
+              {card.set ? (
+                <span className="tag">{card.set.name}</span>
               ) : (
-                <span className="pill pillMuted">No tags</span>
+                <span className="pill pillMuted">No set</span>
               )}
             </div>
 
