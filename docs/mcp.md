@@ -10,7 +10,7 @@
 withHostValidation  →  withCORS  →  withAuth  →  MCP handler
 ```
 
-## 三个工具
+## 五个工具
 
 ### get_subjects_sets
 
@@ -28,6 +28,36 @@ withHostValidation  →  withCORS  →  withAuth  →  MCP handler
 
 实现是 N+1 查询（先查 subjects，再对每个 subject 查一次 sets）。数据量小，暂未优化。
 
+### get_set_cards
+
+只读，按一个明确的 Set 拉取当前用户自己的 active cards。用于在编辑或删除前确认 `card_id`。
+
+```json
+{"set_id": "...", "limit": 100}
+```
+
+返回：
+
+```json
+{
+  "set_id": "...",
+  "cards": [{
+    "card_id": "...",
+    "subject_id": "...",
+    "set_id": "...",
+    "front_text": "有没有可能明天之前拿到？",
+    "answer_text": "Is there any chance we could have it by tomorrow?",
+    "grammar_phrases": [{"text": "Is there any chance…", "note": "礼貌探询"}],
+    "card_type": "sentence",
+    "direction": "zh_to_en",
+    "created_at": "...",
+    "updated_at": "..."
+  }]
+}
+```
+
+不存在或不属于调用者的 Set → `set not found`。`limit` 默认 100，上限 200。
+
 ### add_cards
 
 批量创建，**上限 100 张**。
@@ -35,8 +65,7 @@ withHostValidation  →  withCORS  →  withAuth  →  MCP handler
 ```json
 {
   "cards": [{
-    "subject_id": "...",
-    "set_ids": ["..."],
+    "set_id": "...",
     "front_text": "有没有可能明天之前拿到？",
     "answer_text": "Is there any chance we could have it by tomorrow?",
     "grammar_phrases": [{"text": "Is there any chance…", "note": "礼貌探询"}],
@@ -51,7 +80,7 @@ withHostValidation  →  withCORS  →  withAuth  →  MCP handler
 ```json
 {
   "created_count": 2, "failed_count": 1,
-  "created": [{"index": 0, "card_id": "...", "subject_id": "...", "set_ids": ["..."], "front_text": "...", "answer_text": "..."}],
+  "created": [{"index": 0, "card_id": "...", "subject_id": "...", "set_id": "...", "front_text": "...", "answer_text": "..."}],
   "failed":  [{"index": 2, "error": "set not found"}]
 }
 ```
@@ -66,7 +95,46 @@ withHostValidation  →  withCORS  →  withAuth  →  MCP handler
 
 整体报错（非部分失败）：`cards must contain at least one card`、`cards cannot contain more than 100 cards`。
 
+### edit_card
+
+单卡编辑，**一次只能操作一张卡**。省略的字段保持不变。
+
+```json
+{
+  "card_id": "...",
+  "set_id": "...",
+  "front_text": "我只是想确认一下进展。",
+  "answer_text": "I just wanted to check on the progress.",
+  "grammar_phrases": [{"text": "check on", "note": "询问进展"}],
+  "card_type": "sentence"
+}
+```
+
+返回：
+
+```json
+{
+  "status": "updated",
+  "card": {
+    "card_id": "...",
+    "subject_id": "...",
+    "set_id": "...",
+    "front_text": "我只是想确认一下进展。",
+    "answer_text": "I just wanted to check on the progress.",
+    "grammar_phrases": [{"text": "check on", "note": "询问进展"}],
+    "card_type": "sentence",
+    "direction": "zh_to_en",
+    "created_at": "...",
+    "updated_at": "..."
+  }
+}
+```
+
+`grammar_phrases` 若省略则保留原值；传空数组 `[]` 表示清空。修改 `front_text` 或 `answer_text` 后，后端会重新计算 `direction` 和遮盖用的 `answer_tokens`。不存在、不属于调用者、或目标 `set_id` 不属于调用者 → `card not found` / `set not found`。
+
 ### delete_card
+
+单卡删除，**一次只能操作一张卡**。
 
 ```json
 {"card_id": "..."}
@@ -196,7 +264,7 @@ sequenceDiagram
 
 Scope：`recall.cards.read`、`recall.cards.write`。
 
-⚠️ **scope 未被强制**：`ValidAccessToken` 只返回 userID，工具层完全不看 scope。只申请了 read 的令牌照样能调 `add_cards` 和 `delete_card`。
+⚠️ **scope 未被强制**：`ValidAccessToken` 只返回 userID，工具层完全不看 scope。只申请了 read 的令牌照样能调 `add_cards`、`edit_card` 和 `delete_card`。
 
 ### Access token 格式
 

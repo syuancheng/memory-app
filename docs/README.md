@@ -9,7 +9,7 @@
 | [architecture.md](architecture.md) | 进程与依赖、当前数据模型、删除语义、schema 管理、复习算法、卡片方向与分词 |
 | [auth.md](auth.md) | 身份模型、两种登录方式、验证码、密码、会话、鉴权中间件、密钥配置 |
 | [api.md](api.md) | 33 个 REST 端点的完整参考 |
-| [mcp.md](mcp.md) | MCP 三个工具、两条鉴权路径、OAuth 流程、会话绑定 |
+| [mcp.md](mcp.md) | MCP 五个工具、两条鉴权路径、OAuth 流程、会话绑定 |
 
 ## 系统全貌
 

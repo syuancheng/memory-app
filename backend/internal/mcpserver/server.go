@@ -50,7 +50,7 @@ func NewServer(pool *pgxpool.Pool) *mcp.Server {
 		Name:    "memory-app",
 		Version: "0.1.0",
 	}, &mcp.ServerOptions{
-		Instructions: "Use get_subjects_sets before add_cards so you can pass the exact set_id. Use add_cards for single-card or batch creation. Only use delete_card when the exact card_id is known.",
+		Instructions: "Use get_subjects_sets before add_cards so you can pass the exact set_id. Use get_set_cards to inspect cards in a set before edit_card or delete_card. Use add_cards for single-card or batch creation. edit_card and delete_card operate on exactly one card by exact card_id.",
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -62,6 +62,16 @@ func NewServer(pool *pgxpool.Pool) *mcp.Server {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, tools.GetSubjectsSets)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_set_cards",
+		Title:       "Get Set Cards",
+		Description: "Return active cards under one exact set ID.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
+	}, tools.GetSetCards)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_cards",
@@ -76,9 +86,21 @@ func NewServer(pool *pgxpool.Pool) *mcp.Server {
 	}, tools.AddCards)
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "edit_card",
+		Title:       "Edit Card",
+		Description: "Edit exactly one flashcard by exact card ID. Omitted fields stay unchanged.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(false),
+		},
+	}, tools.EditCard)
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_card",
 		Title:       "Delete Card",
-		Description: "Delete a flashcard by exact card ID.",
+		Description: "Delete exactly one flashcard by exact card ID.",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			DestructiveHint: boolPtr(true),
@@ -113,6 +135,31 @@ type SetSummary struct {
 	SetName   string `json:"set_name" jsonschema:"set name"`
 	CardCount int    `json:"card_count" jsonschema:"number of active cards in the set"`
 	DueCount  int    `json:"due_count" jsonschema:"number of due cards in the set"`
+}
+
+type GetSetCardsInput struct {
+	SetID string `json:"set_id" jsonschema:"existing set ID"`
+	Limit int    `json:"limit,omitempty" jsonschema:"maximum cards to return; defaults to 100, maximum 200"`
+}
+
+type GetSetCardsOutput struct {
+	SetID string        `json:"set_id" jsonschema:"set ID"`
+	Cards []CardSummary `json:"cards" jsonschema:"active cards in this set"`
+}
+
+type CardSummary struct {
+	CardID         string          `json:"card_id" jsonschema:"card ID"`
+	SubjectID      string          `json:"subject_id" jsonschema:"subject ID"`
+	SetID          string          `json:"set_id" jsonschema:"set ID"`
+	SubjectName    string          `json:"subject_name,omitempty" jsonschema:"subject name"`
+	SetName        string          `json:"set_name,omitempty" jsonschema:"set name"`
+	CardType       string          `json:"card_type" jsonschema:"card type"`
+	Direction      string          `json:"direction" jsonschema:"derived review direction"`
+	FrontText      string          `json:"front_text" jsonschema:"front prompt"`
+	AnswerText     string          `json:"answer_text" jsonschema:"English answer sentence"`
+	GrammarPhrases []GrammarPhrase `json:"grammar_phrases" jsonschema:"phrase, grammar, or vocabulary hints"`
+	CreatedAt      string          `json:"created_at" jsonschema:"creation timestamp"`
+	UpdatedAt      string          `json:"updated_at" jsonschema:"last update timestamp"`
 }
 
 func (t *Tools) GetSubjectsSets(ctx context.Context, _ *mcp.CallToolRequest, _ EmptyInput) (*mcp.CallToolResult, GetSubjectsSetsOutput, error) {
@@ -150,6 +197,42 @@ func (t *Tools) GetSubjectsSets(ctx context.Context, _ *mcp.CallToolRequest, _ E
 		output.Subjects = append(output.Subjects, item)
 	}
 
+	return nil, output, nil
+}
+
+func (t *Tools) GetSetCards(ctx context.Context, _ *mcp.CallToolRequest, input GetSetCardsInput) (*mcp.CallToolResult, GetSetCardsOutput, error) {
+	userID, err := userIDFromContext(ctx)
+	if err != nil {
+		return nil, GetSetCardsOutput{}, err
+	}
+	setID := strings.TrimSpace(input.SetID)
+	if setID == "" {
+		return nil, GetSetCardsOutput{}, errors.New("set_id is required")
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	exists, err := t.setBelongsToUser(ctx, userID, setID)
+	if err != nil {
+		return nil, GetSetCardsOutput{}, err
+	}
+	if !exists {
+		return nil, GetSetCardsOutput{}, errors.New("set not found")
+	}
+
+	cards, err := t.listSetCards(ctx, userID, setID, limit)
+	if err != nil {
+		return nil, GetSetCardsOutput{}, err
+	}
+	output := GetSetCardsOutput{SetID: setID, Cards: make([]CardSummary, 0, len(cards))}
+	for _, card := range cards {
+		output.Cards = append(output.Cards, summarizeCard(card))
+	}
 	return nil, output, nil
 }
 
@@ -232,6 +315,37 @@ func (t *Tools) AddCards(ctx context.Context, _ *mcp.CallToolRequest, input AddC
 		result.IsError = true
 	}
 	return result, output, nil
+}
+
+type EditCardInput struct {
+	CardID         string          `json:"card_id" jsonschema:"existing card ID to edit"`
+	SetID          *string         `json:"set_id,omitempty" jsonschema:"optional new set ID; omit to keep unchanged"`
+	FrontText      *string         `json:"front_text,omitempty" jsonschema:"optional new front prompt; omit to keep unchanged"`
+	AnswerText     *string         `json:"answer_text,omitempty" jsonschema:"optional new English answer; omit to keep unchanged"`
+	GrammarPhrases []GrammarPhrase `json:"grammar_phrases,omitempty" jsonschema:"optional replacement phrase, grammar, or vocabulary hints; empty array clears hints"`
+	CardType       *string         `json:"card_type,omitempty" jsonschema:"optional card type; omit to keep unchanged"`
+}
+
+type EditCardOutput struct {
+	Status string      `json:"status" jsonschema:"edit status"`
+	Card   CardSummary `json:"card" jsonschema:"updated card"`
+}
+
+func (t *Tools) EditCard(ctx context.Context, _ *mcp.CallToolRequest, input EditCardInput) (*mcp.CallToolResult, EditCardOutput, error) {
+	userID, err := userIDFromContext(ctx)
+	if err != nil {
+		return nil, EditCardOutput{}, err
+	}
+	cardID := strings.TrimSpace(input.CardID)
+	if cardID == "" {
+		return nil, EditCardOutput{}, errors.New("card_id is required")
+	}
+
+	card, err := t.updateCard(ctx, userID, cardID, input)
+	if err != nil {
+		return nil, EditCardOutput{}, err
+	}
+	return nil, EditCardOutput{Status: "updated", Card: summarizeCard(card)}, nil
 }
 
 type DeleteCardInput struct {
@@ -338,6 +452,43 @@ func (t *Tools) listSets(ctx context.Context, userID string, subjectID string) (
 	return sets, rows.Err()
 }
 
+func (t *Tools) listSetCards(ctx context.Context, userID string, setID string, limit int) ([]model.Card, error) {
+	rows, err := t.pool.Query(ctx, `
+		SELECT c.id::text,
+		       c.set_id::text,
+		       st.subject_id::text,
+		       s.name,
+		       st.id::text,
+		       st.name,
+		       c.card_type,
+		       c.direction,
+		       c.front_text, c.answer_text, c.grammar_phrases, c.answer_tokens,
+		       c.created_at, c.updated_at
+		FROM cards c
+		JOIN sets st ON st.id = c.set_id AND st.deleted_at IS NULL
+		JOIN subjects s ON s.id = st.subject_id AND s.deleted_at IS NULL
+		WHERE c.user_id = $1
+		  AND c.set_id = $2
+		  AND c.deleted_at IS NULL
+		ORDER BY c.created_at DESC
+		LIMIT $3
+	`, userID, setID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	cards := []model.Card{}
+	for rows.Next() {
+		card, err := scanCard(rows)
+		if err != nil {
+			return nil, err
+		}
+		cards = append(cards, card)
+	}
+	return cards, rows.Err()
+}
+
 func (t *Tools) createCard(ctx context.Context, userID string, input AddCardInput) (model.Card, error) {
 	input.SetID = strings.TrimSpace(input.SetID)
 	input.FrontText = strings.TrimSpace(input.FrontText)
@@ -431,11 +582,115 @@ func (t *Tools) createCard(ctx context.Context, userID string, input AddCardInpu
 	return card, nil
 }
 
-func (t *Tools) loadCard(ctx context.Context, userID string, cardID string) (model.Card, error) {
-	var card model.Card
+func (t *Tools) updateCard(ctx context.Context, userID string, cardID string, input EditCardInput) (model.Card, error) {
+	tx, err := t.pool.Begin(ctx)
+	if err != nil {
+		return model.Card{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var setID string
+	var subjectID string
+	var cardType string
+	var frontText string
+	var answerText string
 	var grammarBytes []byte
-	var tokenBytes []byte
-	err := t.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
+		SELECT c.set_id::text, c.subject_id::text, c.card_type, c.front_text, c.answer_text, c.grammar_phrases
+		FROM cards c
+		JOIN sets st ON st.id = c.set_id AND st.deleted_at IS NULL
+		JOIN subjects s ON s.id = st.subject_id AND s.deleted_at IS NULL
+		WHERE c.id = $1 AND c.user_id = $2 AND c.deleted_at IS NULL
+		FOR UPDATE OF c
+	`, cardID, userID).Scan(&setID, &subjectID, &cardType, &frontText, &answerText, &grammarBytes)
+	if err == pgx.ErrNoRows {
+		return model.Card{}, errors.New("card not found")
+	}
+	if err != nil {
+		return model.Card{}, err
+	}
+
+	var grammarPhrases []model.GrammarPhrase
+	if err := json.Unmarshal(grammarBytes, &grammarPhrases); err != nil {
+		return model.Card{}, err
+	}
+
+	if input.SetID != nil {
+		setID = strings.TrimSpace(*input.SetID)
+		if setID == "" {
+			return model.Card{}, errors.New("set_id cannot be empty")
+		}
+		if err = tx.QueryRow(ctx, `
+			SELECT st.subject_id::text
+			FROM sets st
+			JOIN subjects s ON s.id = st.subject_id
+			WHERE st.id = $1
+			  AND st.user_id = $2
+			  AND st.deleted_at IS NULL
+			  AND s.deleted_at IS NULL
+		`, setID, userID).Scan(&subjectID); err != nil {
+			if err == pgx.ErrNoRows {
+				return model.Card{}, errors.New("set not found")
+			}
+			return model.Card{}, err
+		}
+	}
+	if input.FrontText != nil {
+		frontText = strings.TrimSpace(*input.FrontText)
+		if frontText == "" {
+			return model.Card{}, errors.New("front_text cannot be empty")
+		}
+	}
+	if input.AnswerText != nil {
+		answerText = strings.TrimSpace(*input.AnswerText)
+		if answerText == "" {
+			return model.Card{}, errors.New("answer_text cannot be empty")
+		}
+	}
+	if input.CardType != nil {
+		cardType = service.NormalizeCardType(strings.TrimSpace(*input.CardType))
+	}
+	if input.GrammarPhrases != nil {
+		grammarPhrases = normalizeGrammarPhrases(input.GrammarPhrases)
+	}
+
+	direction := service.DetectDirection(frontText)
+	grammarJSON, err := model.GrammarJSON(grammarPhrases)
+	if err != nil {
+		return model.Card{}, err
+	}
+	tokensJSON, err := model.TokensJSON(service.TokenizeAnswer(answerText, direction))
+	if err != nil {
+		return model.Card{}, err
+	}
+
+	result, err := tx.Exec(ctx, `
+		UPDATE cards
+		SET subject_id = $3,
+		    set_id = $4,
+		    card_type = $5,
+		    direction = $6,
+		    front_text = $7,
+		    answer_text = $8,
+		    grammar_phrases = $9::jsonb,
+		    answer_tokens = $10::jsonb,
+		    updated_at = now()
+		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+	`, cardID, userID, subjectID, setID, cardType, direction, frontText, answerText, string(grammarJSON), string(tokensJSON))
+	if err != nil {
+		return model.Card{}, err
+	}
+	if result.RowsAffected() == 0 {
+		return model.Card{}, errors.New("card not found")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.Card{}, err
+	}
+	return t.loadCard(ctx, userID, cardID)
+}
+
+func (t *Tools) loadCard(ctx context.Context, userID string, cardID string) (model.Card, error) {
+	row := t.pool.QueryRow(ctx, `
 		SELECT c.id::text,
 		       c.set_id::text,
 		       st.subject_id::text,
@@ -450,7 +705,26 @@ func (t *Tools) loadCard(ctx context.Context, userID string, cardID string) (mod
 		JOIN sets st ON st.id = c.set_id AND st.deleted_at IS NULL
 		JOIN subjects s ON s.id = st.subject_id AND s.deleted_at IS NULL
 		WHERE c.id = $1 AND c.user_id = $2 AND c.deleted_at IS NULL
-	`, cardID, userID).Scan(
+	`, cardID, userID)
+	card, err := scanCard(row)
+	if err == pgx.ErrNoRows {
+		return model.Card{}, errors.New("card not found")
+	}
+	if err != nil {
+		return model.Card{}, err
+	}
+	return card, nil
+}
+
+type cardScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanCard(row cardScanner) (model.Card, error) {
+	var card model.Card
+	var grammarBytes []byte
+	var tokenBytes []byte
+	if err := row.Scan(
 		&card.ID,
 		&card.SetID,
 		&card.SubjectID,
@@ -465,11 +739,7 @@ func (t *Tools) loadCard(ctx context.Context, userID string, cardID string) (mod
 		&tokenBytes,
 		&card.CreatedAt,
 		&card.UpdatedAt,
-	)
-	if err == pgx.ErrNoRows {
-		return model.Card{}, errors.New("card not found after create")
-	}
-	if err != nil {
+	); err != nil {
 		return model.Card{}, err
 	}
 	if err := json.Unmarshal(grammarBytes, &card.GrammarPhrases); err != nil {
@@ -480,6 +750,61 @@ func (t *Tools) loadCard(ctx context.Context, userID string, cardID string) (mod
 	}
 	card.Set.SubjectID = card.SubjectID
 	return card, nil
+}
+
+func (t *Tools) setBelongsToUser(ctx context.Context, userID string, setID string) (bool, error) {
+	var exists bool
+	err := t.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM sets st
+			JOIN subjects s ON s.id = st.subject_id
+			WHERE st.id = $1
+			  AND st.user_id = $2
+			  AND st.deleted_at IS NULL
+			  AND s.deleted_at IS NULL
+		)
+	`, setID, userID).Scan(&exists)
+	return exists, err
+}
+
+func normalizeGrammarPhrases(input []GrammarPhrase) []model.GrammarPhrase {
+	phrases := make([]model.GrammarPhrase, 0, len(input))
+	for _, phrase := range input {
+		text := strings.TrimSpace(phrase.Text)
+		if text == "" {
+			continue
+		}
+		phrases = append(phrases, model.GrammarPhrase{
+			Text: text,
+			Note: strings.TrimSpace(phrase.Note),
+		})
+	}
+	return phrases
+}
+
+func summarizeCard(card model.Card) CardSummary {
+	phrases := make([]GrammarPhrase, 0, len(card.GrammarPhrases))
+	for _, phrase := range card.GrammarPhrases {
+		phrases = append(phrases, GrammarPhrase{
+			Text: phrase.Text,
+			Note: phrase.Note,
+		})
+	}
+	return CardSummary{
+		CardID:         card.ID,
+		SubjectID:      card.SubjectID,
+		SetID:          card.SetID,
+		SubjectName:    card.SubjectName,
+		SetName:        card.Set.Name,
+		CardType:       card.CardType,
+		Direction:      card.Direction,
+		FrontText:      card.FrontText,
+		AnswerText:     card.AnswerText,
+		GrammarPhrases: phrases,
+		CreatedAt:      card.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:      card.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
 }
 
 func withAuth(oauthServer *OAuthServer, personal PersonalTokenResolver, next http.Handler) http.Handler {

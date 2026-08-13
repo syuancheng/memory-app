@@ -23,6 +23,8 @@ func TestToolsAddAndDeleteCards(t *testing.T) {
 	subjectID := uuid.NewString()
 	setID := uuid.NewString()
 	seedSubjectAndSetForUser(t, ctx, pool, userID, subjectID, setID)
+	secondSetID := uuid.NewString()
+	seedSubjectAndSetForUser(t, ctx, pool, userID, subjectID, secondSetID)
 
 	subjectsResult, _, err := tools.GetSubjectsSets(ctx, nil, EmptyInput{})
 	if err != nil {
@@ -61,12 +63,69 @@ func TestToolsAddAndDeleteCards(t *testing.T) {
 		t.Fatal("created card ID is empty")
 	}
 
+	_, setCards, err := tools.GetSetCards(ctx, nil, GetSetCardsInput{SetID: setID})
+	if err != nil {
+		t.Fatalf("GetSetCards error: %v", err)
+	}
+	if len(setCards.Cards) != 1 || setCards.Cards[0].CardID != cardID {
+		t.Fatalf("GetSetCards cards = %+v, want created card", setCards.Cards)
+	}
+
+	frontText := "我只是想确认一下进展。"
+	answerText := "I just wanted to check on the progress."
+	cardType := "sentence"
+	_, editOutput, err := tools.EditCard(ctx, nil, EditCardInput{
+		CardID:     cardID,
+		SetID:      &secondSetID,
+		FrontText:  &frontText,
+		AnswerText: &answerText,
+		CardType:   &cardType,
+		GrammarPhrases: []GrammarPhrase{
+			{Text: "check on", Note: "ask about progress"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("EditCard error: %v", err)
+	}
+	if editOutput.Status != "updated" || editOutput.Card.CardID != cardID || editOutput.Card.SetID != secondSetID {
+		t.Fatalf("EditCard output = %+v", editOutput)
+	}
+	if editOutput.Card.FrontText != frontText || editOutput.Card.AnswerText != answerText {
+		t.Fatalf("EditCard text = %q / %q", editOutput.Card.FrontText, editOutput.Card.AnswerText)
+	}
+	if len(editOutput.Card.GrammarPhrases) != 1 || editOutput.Card.GrammarPhrases[0].Text != "check on" {
+		t.Fatalf("EditCard grammar = %+v", editOutput.Card.GrammarPhrases)
+	}
+	loaded, err := tools.loadCard(ctx, userID, cardID)
+	if err != nil {
+		t.Fatalf("load edited card: %v", err)
+	}
+	if len(loaded.AnswerTokens) == 0 || loaded.Direction == "" {
+		t.Fatalf("edited card did not regenerate derived fields: direction=%q tokens=%+v", loaded.Direction, loaded.AnswerTokens)
+	}
+
+	_, originalSetCards, err := tools.GetSetCards(ctx, nil, GetSetCardsInput{SetID: setID})
+	if err != nil {
+		t.Fatalf("GetSetCards original set error: %v", err)
+	}
+	if len(originalSetCards.Cards) != 0 {
+		t.Fatalf("original set still has edited card: %+v", originalSetCards.Cards)
+	}
+
 	_, deleteOutput, err := tools.DeleteCard(ctx, nil, DeleteCardInput{CardID: cardID})
 	if err != nil {
 		t.Fatalf("DeleteCard error: %v", err)
 	}
 	if deleteOutput.Status != "deleted" || deleteOutput.CardID != cardID {
 		t.Fatalf("DeleteCard output = %+v", deleteOutput)
+	}
+
+	_, secondSetCards, err := tools.GetSetCards(ctx, nil, GetSetCardsInput{SetID: secondSetID})
+	if err != nil {
+		t.Fatalf("GetSetCards second set error: %v", err)
+	}
+	if len(secondSetCards.Cards) != 0 {
+		t.Fatalf("deleted card still returned from GetSetCards: %+v", secondSetCards.Cards)
 	}
 }
 
@@ -116,6 +175,12 @@ func TestToolsIsolateCardsByAuthenticatedUser(t *testing.T) {
 
 	if _, _, err := tools.DeleteCard(context.WithValue(ctx, mcpUserIDKey{}, userB), nil, DeleteCardInput{CardID: addOutput.Created[0].CardID}); err == nil {
 		t.Fatal("user B deleted user A card, want card not found")
+	}
+	if _, _, err := tools.EditCard(context.WithValue(ctx, mcpUserIDKey{}, userB), nil, EditCardInput{CardID: addOutput.Created[0].CardID}); err == nil {
+		t.Fatal("user B edited user A card, want card not found")
+	}
+	if _, _, err := tools.GetSetCards(context.WithValue(ctx, mcpUserIDKey{}, userB), nil, GetSetCardsInput{SetID: setA}); err == nil {
+		t.Fatal("user B listed user A set cards, want set not found")
 	}
 }
 
