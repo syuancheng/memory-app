@@ -355,14 +355,22 @@ CREATE TABLE IF NOT EXISTS sets (
 );
 
 DO $$
+DECLARE
+  has_multi_set_cards BOOLEAN;
 BEGIN
-  IF to_regclass('public.card_tags') IS NOT NULL AND EXISTS (
-    SELECT 1
-    FROM card_tags
-    GROUP BY card_id
-    HAVING COUNT(*) > 1
-  ) THEN
-    RAISE EXCEPTION 'cannot migrate card_tags: some cards belong to multiple sets';
+  IF to_regclass('public.card_tags') IS NOT NULL THEN
+    EXECUTE '
+      SELECT EXISTS (
+        SELECT 1
+        FROM card_tags
+        GROUP BY card_id
+        HAVING COUNT(*) > 1
+      )
+    ' INTO has_multi_set_cards;
+
+    IF has_multi_set_cards THEN
+      RAISE EXCEPTION 'cannot migrate card_tags: some cards belong to multiple sets';
+    END IF;
   END IF;
 END $$;
 
@@ -386,11 +394,13 @@ ALTER TABLE cards ADD COLUMN IF NOT EXISTS set_id UUID REFERENCES sets(id);
 DO $$
 BEGIN
   IF to_regclass('public.card_tags') IS NOT NULL THEN
-    UPDATE cards c
-    SET set_id = ct.tag_id
-    FROM card_tags ct
-    WHERE c.id = ct.card_id
-      AND c.set_id IS NULL;
+    EXECUTE '
+      UPDATE cards c
+      SET set_id = ct.tag_id
+      FROM card_tags ct
+      WHERE c.id = ct.card_id
+        AND c.set_id IS NULL
+    ';
   END IF;
 END $$;
 
