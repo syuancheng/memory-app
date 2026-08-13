@@ -44,7 +44,6 @@ struct SetPickerView: View {
     }
 
     var body: some View {
-        // 本屏由 navigationDestination push 出来 → dismiss 用 .back（系统箭头）
         StudySelectionPage(title: subject.name, onBack: dismiss.callAsFunction) {
             Text("Choose what to review")
                 .appText(AppType.title2)
@@ -102,12 +101,9 @@ struct SetPickerView: View {
                 )
             }
 
-            // 为底部吸附的主操作条让位
             Spacer(minLength: AppSpace.giant * 2)
         }
         .safeAreaInset(edge: .bottom) {
-            // 改造前禁用态是 dark.opacity(0.32) 底 + white.opacity(0.62) 字（约 1.9:1）。
-            // 现在走 AppButton 的 disabledFill + disabledText（6.92:1）。
             AppButton(
                 title: primaryTitle,
                 variant: .primary,

@@ -13,13 +13,16 @@ import (
 func TestToolsAddAndDeleteCards(t *testing.T) {
 	// 工具从 context 取 userID（withAuth 中间件负责注入）。测试直接调用工具，
 	// 必须自己注入，否则一律返回 "authenticated user is required"。
-	ctx := context.WithValue(context.Background(), mcpUserIDKey{}, db.DemoUserID)
+	baseCtx := context.Background()
+	userID := uuid.NewString()
+	ctx := context.WithValue(baseCtx, mcpUserIDKey{}, userID)
 	pool := testPool(t, ctx)
 	tools := &Tools{pool: pool}
 
+	seedUser(t, ctx, pool, userID, userID+"@example.com")
 	subjectID := uuid.NewString()
 	setID := uuid.NewString()
-	seedSubjectAndSet(t, ctx, pool, subjectID, setID)
+	seedSubjectAndSetForUser(t, ctx, pool, userID, subjectID, setID)
 
 	subjectsResult, _, err := tools.GetSubjectsSets(ctx, nil, EmptyInput{})
 	if err != nil {
@@ -125,18 +128,10 @@ func testPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	if err := db.EnsureDemoUser(ctx, pool); err != nil {
-		t.Fatalf("ensure demo user: %v", err)
+	if err := db.SetupTestSchema(ctx, pool); err != nil {
+		t.Fatalf("setup test schema: %v", err)
 	}
 	return pool
-}
-
-func seedSubjectAndSet(t *testing.T, ctx context.Context, pool *pgxpool.Pool, subjectID string, setID string) {
-	t.Helper()
-	seedSubjectAndSetForUser(t, ctx, pool, db.DemoUserID, subjectID, setID)
 }
 
 func seedUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID string, email string) {

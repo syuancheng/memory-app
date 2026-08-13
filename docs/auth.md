@@ -264,21 +264,20 @@ panic 由 `middleware.Recoverer` 兜住转成 500。这个中间件此前**没�
 
 ### 租户隔离
 
-所有数据查询的 WHERE 都带 `user_id = $1`，包括按 ID 直接取单条记录的端点。创建卡片时传入的 `subject_id` 和 `tag_ids` 也会逐个校验归属。
+所有数据查询的 WHERE 都带 `user_id = $1`，包括按 ID 直接取单条记录的端点。创建卡片时传入的 `set_id` 也会校验归属。
 
 回归测试在 `internal/api/isolation_test.go`：用真实路由，拿 A 的会话去碰 B 的资源，断言拿不到也改不动，并且**验证目标资源事后完好**（只看状态码不够——成功的 DELETE 也返回 200）。
 
-## 三个密钥
+## 密钥配置
 
 | 变量 | 用途 | 约束 |
 |---|---|---|
 | `AUTH_TOKEN_SECRET` | 会话令牌、验证码、MCP 个人令牌的 HMAC 密钥 | **两个进程必须相同**；缺失则启动失败 |
-| `MEMORY_MCP_TOKEN` | 分发给 MCP 客户端的静态 bearer token | 可选 |
-| `MEMORY_MCP_OAUTH_TOKEN_SECRET` | OAuth access token 的签名密钥 | 开 OAuth 时必填，且**不能等于**上面两个 |
+| `MEMORY_MCP_OAUTH_TOKEN_SECRET` | OAuth access token 的签名密钥 | 开 OAuth 时必填，且**不能等于** `AUTH_TOKEN_SECRET` |
 
 启动时 `Config.Validate()` 强制校验，不满足直接拒绝启动。
 
-### 为什么必须互不相同
+### 为什么必须隔离
 
 OAuth access token 的 payload 里**明文携带 `user_id`**，校验时只做一次 HMAC 比对：
 
@@ -286,9 +285,7 @@ OAuth access token 的 payload 里**明文携带 `user_id`**，校验时只做�
 {"sub":"owner","aud":"...","user_id":"<真实用户ID>","exp":...}
 ```
 
-如果签名密钥就是 `MEMORY_MCP_TOKEN`——那个要**分发给客户端**的共享 token——那么任何持有它的人都可以自行构造 `{"sub":"owner","user_id":"<任意受害者>"}` 并签名，然后完整读写那个人的数据。
-
-这曾经是真实存在的漏洞：`OAuthTokenSecret` 的默认值就是 `MEMORY_MCP_TOKEN`。
+如果签名密钥和 App session 共用，任一侧的密钥泄漏都会扩大影响面。MCP OAuth token 明文携带 `user_id`，因此必须使用独立密钥。
 
 ### 曾经的硬编码兜底
 

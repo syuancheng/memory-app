@@ -420,7 +420,7 @@ private struct SetCardsPage: View {
             if !isLoading && filteredCards.isEmpty {
                 CardsEmptyState(
                     title: searchText.isEmpty ? "No cards yet" : "No matching cards",
-                    message: searchText.isEmpty ? "Add your first card to this set." : "Try another prompt, answer, or tag keyword."
+                    message: searchText.isEmpty ? "Add your first card to this set." : "Try another prompt, answer, or set keyword."
                 )
                 .padding(.top, AppSpace.sm)
             } else {

@@ -302,7 +302,7 @@ func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	commandTag, err := tx.Exec(r.Context(), `
+	result, err := tx.Exec(r.Context(), `
 		UPDATE subjects SET deleted_at = now(), updated_at = now()
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 	`, subjectID, userID)
@@ -310,7 +310,7 @@ func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if commandTag.RowsAffected() == 0 {
+	if result.RowsAffected() == 0 {
 		writeError(w, http.StatusNotFound, "subject not found")
 		return
 	}
@@ -476,7 +476,7 @@ func (s *Server) deleteSet(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	commandTag, err := tx.Exec(r.Context(), `
+	result, err := tx.Exec(r.Context(), `
 		UPDATE sets SET deleted_at = now(), updated_at = now()
 		WHERE id = $1 AND subject_id = $2 AND user_id = $3 AND deleted_at IS NULL
 	`, setID, subjectID, userID)
@@ -484,7 +484,7 @@ func (s *Server) deleteSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if commandTag.RowsAffected() == 0 {
+	if result.RowsAffected() == 0 {
 		writeError(w, http.StatusNotFound, "set not found")
 		return
 	}
@@ -602,7 +602,7 @@ func (s *Server) updateCard(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
 	userID := currentUserID(r)
-	commandTag, err := s.db.Exec(r.Context(), `
+	result, err := s.db.Exec(r.Context(), `
 		UPDATE cards SET deleted_at = now(), updated_at = now()
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 	`, chi.URLParam(r, "cardID"), userID)
@@ -610,7 +610,7 @@ func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if commandTag.RowsAffected() == 0 {
+	if result.RowsAffected() == 0 {
 		writeError(w, http.StatusNotFound, "card not found")
 		return
 	}
@@ -631,7 +631,7 @@ func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
 func (s *Server) masterCard(w http.ResponseWriter, r *http.Request) {
 	userID := currentUserID(r)
 	cardID := chi.URLParam(r, "cardID")
-	commandTag, err := s.db.Exec(r.Context(), `
+	result, err := s.db.Exec(r.Context(), `
 		UPDATE review_states
 		SET status = 'mastered',
 		    due_at = now() + interval '100 years',
@@ -647,7 +647,7 @@ func (s *Server) masterCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if commandTag.RowsAffected() == 0 {
+	if result.RowsAffected() == 0 {
 		writeError(w, http.StatusNotFound, "card not found")
 		return
 	}
@@ -853,7 +853,7 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, userID string, cardID s
 			return model.Card{}, err
 		}
 	} else {
-		commandTag, err := tx.Exec(ctx, `
+		result, err := tx.Exec(ctx, `
 				UPDATE cards
 				SET subject_id = $3,
 				    set_id = $4,
@@ -869,7 +869,7 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, userID string, cardID s
 		if err != nil {
 			return model.Card{}, err
 		}
-		if commandTag.RowsAffected() == 0 {
+		if result.RowsAffected() == 0 {
 			return model.Card{}, fmt.Errorf("card not found")
 		}
 	}

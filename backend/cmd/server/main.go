@@ -25,15 +25,6 @@ func main() {
 	}
 	defer pool.Close()
 
-	if err := db.Migrate(ctx, pool); err != nil {
-		log.Fatalf("migrate database: %v", err)
-	}
-	if err := db.EnsureDemoUser(ctx, pool); err != nil {
-		log.Fatalf("ensure demo user: %v", err)
-	}
-	if err := db.EnsureDemoData(ctx, pool); err != nil {
-		log.Fatalf("ensure demo data: %v", err)
-	}
 	authService, err := auth.NewService(pool, cfg.Auth)
 	if err != nil {
 		log.Fatalf("configure auth: %v", err)

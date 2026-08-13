@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		100000000000000000000122 /* SetPasswordView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000222 /* SetPasswordView.swift */; };
+		100000000000000000000107 /* SetPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000207 /* SetPickerView.swift */; };
 		100000000000000000000121 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000221 /* Assets.xcassets */; };
 		100000000000000000000118 /* Tokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000218 /* Tokens.swift */; };
 		100000000000000000000119 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000219 /* Components.swift */; };
@@ -16,7 +17,6 @@
 		100000000000000000000103 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000203 /* APIClient.swift */; };
 		100000000000000000000105 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000205 /* HomeView.swift */; };
 		100000000000000000000106 /* SubjectPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000206 /* SubjectPickerView.swift */; };
-		100000000000000000000107 /* TagPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000207 /* TagPickerView.swift */; };
 		100000000000000000000108 /* ReviewSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000208 /* ReviewSessionView.swift */; };
 		100000000000000000000109 /* ReviewCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000209 /* ReviewCardView.swift */; };
 		100000000000000000000110 /* MeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000211 /* MeView.swift */; };
@@ -27,6 +27,7 @@
 
 /* Begin PBXFileReference section */
 		100000000000000000000222 /* SetPasswordView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetPasswordView.swift; sourceTree = "<group>"; };
+		100000000000000000000207 /* SetPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetPickerView.swift; sourceTree = "<group>"; };
 		100000000000000000000221 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		100000000000000000000218 /* Tokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tokens.swift; sourceTree = "<group>"; };
 		100000000000000000000219 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
@@ -36,7 +37,6 @@
 		100000000000000000000203 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		100000000000000000000205 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		100000000000000000000206 /* SubjectPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubjectPickerView.swift; sourceTree = "<group>"; };
-		100000000000000000000207 /* TagPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagPickerView.swift; sourceTree = "<group>"; };
 		100000000000000000000208 /* ReviewSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewSessionView.swift; sourceTree = "<group>"; };
 		100000000000000000000209 /* ReviewCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewCardView.swift; sourceTree = "<group>"; };
 		100000000000000000000210 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -109,7 +109,7 @@
 			children = (
 				100000000000000000000205 /* HomeView.swift */,
 				100000000000000000000206 /* SubjectPickerView.swift */,
-				100000000000000000000207 /* TagPickerView.swift */,
+				100000000000000000000207 /* SetPickerView.swift */,
 				100000000000000000000208 /* ReviewSessionView.swift */,
 				100000000000000000000209 /* ReviewCardView.swift */,
 				100000000000000000000211 /* MeView.swift */,
@@ -205,7 +205,7 @@
 				100000000000000000000103 /* APIClient.swift in Sources */,
 				100000000000000000000105 /* HomeView.swift in Sources */,
 				100000000000000000000106 /* SubjectPickerView.swift in Sources */,
-				100000000000000000000107 /* TagPickerView.swift in Sources */,
+				100000000000000000000107 /* SetPickerView.swift in Sources */,
 				100000000000000000000108 /* ReviewSessionView.swift in Sources */,
 				100000000000000000000109 /* ReviewCardView.swift in Sources */,
 				100000000000000000000110 /* MeView.swift in Sources */,

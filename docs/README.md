@@ -6,10 +6,10 @@
 
 | 文档 | 内容 |
 |---|---|
-| [architecture.md](architecture.md) | 进程与依赖、13 张表的数据模型、四种删除语义、迁移机制、复习算法、卡片方向与分词 |
-| [auth.md](auth.md) | 身份模型、两种登录方式、验证码、密码、会话、鉴权中间件、三个密钥 |
+| [architecture.md](architecture.md) | 进程与依赖、当前数据模型、删除语义、schema 管理、复习算法、卡片方向与分词 |
+| [auth.md](auth.md) | 身份模型、两种登录方式、验证码、密码、会话、鉴权中间件、密钥配置 |
 | [api.md](api.md) | 33 个 REST 端点的完整参考 |
-| [mcp.md](mcp.md) | MCP 三个工具、三条鉴权路径、OAuth 流程、会话绑定 |
+| [mcp.md](mcp.md) | MCP 三个工具、两条鉴权路径、OAuth 流程、会话绑定 |
 
 ## 系统全貌
 
@@ -38,11 +38,9 @@ flowchart LR
 | 代码里 | 对外（API 文案 / iOS / MCP） | 说明 |
 |---|---|---|
 | `subject` | Subject | 学习科目，如 English |
-| `tag` | **Set** | 科目下的分组。注意命名不一致：数据库表叫 `tags`，但错误文案是 `"set not found"`，MCP 工具字段是 `set_ids` |
+| `set` | Set | 科目下的分组 |
 | `card` | Card | 一张闪卡，正面提示 + 背面答案 + 语法短语 |
 | `identity` | — | 一种登录方式（邮箱 / 手机号 / 第三方），内部概念，不直接对外 |
-
-`tag` 与 `set` 这组名字不一致是历史遗留：先有 `tags` 表，后来产品上改叫 Set，表名没跟着改。**读代码时看到 tag，理解成 set。**
 
 ## 5 分钟跑起来
 

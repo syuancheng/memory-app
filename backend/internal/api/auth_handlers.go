@@ -191,7 +191,6 @@ func writeAuthError(w http.ResponseWriter, err error) {
 
 // ===== MCP 个人访问令牌 =====
 //
-// MCP 的静态 MEMORY_MCP_TOKEN 一律映射到 demo 用户，卡片无法落到真实账号。
 // 这组接口让登录用户签发绑定自己的令牌，MCP server 凭它解析出真实 userID。
 
 type mcpTokenResponse struct {

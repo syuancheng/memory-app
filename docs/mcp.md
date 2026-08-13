@@ -80,7 +80,7 @@ withHostValidation  →  withCORS  →  withAuth  →  MCP handler
 
 ---
 
-## 三条鉴权路径
+## 两条鉴权路径
 
 `withAuth` 按固定优先级依次尝试：
 
@@ -88,9 +88,7 @@ withHostValidation  →  withCORS  →  withAuth  →  MCP handler
 flowchart TD
     R["请求"] --> P{"个人访问令牌<br/>mcp_..."}
     P -->|命中| RU["→ 真实 userID"]
-    P -->|不命中| S{"静态 token<br/>且 AllowDemoToken"}
-    S -->|命中| DU["→ demo 用户"]
-    S -->|不命中| O{"OAuth access token"}
+    P -->|不命中| O{"OAuth access token"}
     O -->|命中| OU["→ token 里的 userID"]
     O -->|不命中| E["401"]
 ```
@@ -101,32 +99,17 @@ flowchart TD
 
 格式 `mcp_` + base64url(32 字节)，共 47 字符。在 iOS 的 **Me → MCP Access** 生成。
 
-**这是唯一能把卡片写进自己账号的方式。** 校验时顺带刷新 `last_used_at`，所以 App 里能看到令牌是否还在被使用。
+校验时顺带刷新 `last_used_at`，所以 App 里能看到令牌是否还在被使用。
 
 前缀 `mcp_` 用于快速排除（不匹配就不查库）。
 
-### 2. 静态 token（默认关闭）
-
-`MEMORY_MCP_TOKEN` 是一个**分发给客户端的共享凭据**，命中后一律映射到写死的 demo 用户：
-
-```go
-ctx = context.WithValue(ctx, mcpUserIDKey{}, db.DemoUserID)
-```
-
-也就是说**所有持有它的客户端落进同一个租户，互相可见、可删**。因此默认关闭，必须显式设置 `MEMORY_MCP_ALLOW_DEMO_TOKEN=true` 才启用。个人访问令牌已经覆盖了真实场景，这条路只适合冒烟测试。
-
-⚠️ 比较用的是 `==` 而非常量时间比较。
-
-### 3. OAuth
+### 2. OAuth
 
 ChatGPT 自定义 MCP 应用走这条。见下节。
 
 ### 完全未配置时
 
-若 `MEMORY_MCP_TOKEN`、OAuth、个人令牌解析器**三者全无**：
-
-- 默认 → 所有请求 401 `server has no authentication configured`
-- `MEMORY_MCP_ALLOW_DEMO_TOKEN=true` → **完全放行不鉴权**（此时 context 里没有 userID，工具会返回 `authenticated user is required`）
+若 OAuth 与个人令牌解析器都未配置，所有请求返回 401 `server has no authentication configured`。
 
 ---
 
@@ -205,7 +188,7 @@ sequenceDiagram
     M->>C: {"access_token":..,"expires_in":2592000}
 ```
 
-授权页支持两种身份验证：邮箱验证码（走与 App 相同的登录逻辑），或 "Continue with Apple"。若 `authService` 未装配，回落到比对 `MEMORY_MCP_OWNER_PASSWORD` 并映射到 demo 用户。
+授权页支持两种身份验证：邮箱验证码（走与 App 相同的登录逻辑），或 "Continue with Apple"。若 `authService` 未装配，授权页会拒绝登录，不会回落到共享身份。
 
 **参数校验**：`response_type` 必须是 `code`；`client_id` 必须匹配；`redirect_uri` 必须是 **https** 且以 `MEMORY_MCP_OAUTH_ALLOWED_REDIRECT_PREFIXES`（默认 `https://chatgpt.com/connector/oauth/`）开头。
 
@@ -231,7 +214,7 @@ payload：
 
 有效期 30 天。
 
-**`user_id` 明文在 payload 里，只靠 HMAC 保证不被篡改**——这就是三个密钥必须互不相同的原因，见 [auth.md](auth.md#为什么必须互不相同)。
+**`user_id` 明文在 payload 里，只靠 HMAC 保证不被篡改**——这就是 OAuth token secret 必须和 App session secret 隔离的原因，见 [auth.md](auth.md#为什么必须隔离)。
 
 校验时若 `authService` 可用，还会调 `UserActive` 确认用户未被软删或停用。
 
@@ -281,10 +264,8 @@ MEMORY_MCP_ALLOWED_HOSTS  默认 "127.0.0.1,localhost"
 | `AUTH_TOKEN_SECRET` | **必填** | 必须与 API server 相同 |
 | `MEMORY_MCP_ALLOWED_HOSTS` | `127.0.0.1,localhost` | 部署到域名必须加 |
 | `MEMORY_MCP_ALLOWED_ORIGINS` | 空（全放行） | |
-| `MEMORY_MCP_TOKEN` | 空 | 静态共享 token |
-| `MEMORY_MCP_ALLOW_DEMO_TOKEN` | `false` | 启用上面那条 |
 | `MEMORY_MCP_OAUTH_ENABLED` | `false` | |
-| `MEMORY_MCP_OAUTH_TOKEN_SECRET` | 空 | **开 OAuth 时必填，且不能等于另外两个密钥** |
+| `MEMORY_MCP_OAUTH_TOKEN_SECRET` | 空 | **开 OAuth 时必填，且不能等于 `AUTH_TOKEN_SECRET`** |
 | `MEMORY_MCP_PUBLIC_URL` | `http://127.0.0.1:3001` | 用于构造发现文档 |
 | `MEMORY_MCP_OAUTH_CLIENT_ID` | `recall-deck-chatgpt` | |
 | `MEMORY_MCP_OWNER_PASSWORD` | 空 | 授权页的兜底口令 |
@@ -304,4 +285,3 @@ MEMORY_MCP_ALLOWED_HOSTS  默认 "127.0.0.1,localhost"
 6. Bearer 前缀比较**大小写敏感**，与 REST 侧不一致
 7. `resource_documentation` 指向未注册的路径
 8. `get_subjects_sets` 是 N+1 查询
-9. 静态 token 用 `==` 比较，非常量时间

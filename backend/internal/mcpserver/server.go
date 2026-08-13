@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"memory-app/backend/internal/db"
 	"memory-app/backend/internal/model"
 	"memory-app/backend/internal/service"
 
@@ -24,14 +23,11 @@ const maxBatchCards = 100
 type mcpUserIDKey struct{}
 
 type ServerConfig struct {
-	AuthToken      string
 	AllowedHosts   []string
 	AllowedOrigins []string
 	JSONResponse   bool
-	AllowDemoToken bool
 	OAuthServer    *OAuthServer
 	// PersonalTokens 用个人访问令牌换取真实 userID。
-	// 没有它，MCP 只能靠静态 token 落到 demo 账号。
 	PersonalTokens PersonalTokenResolver
 }
 
@@ -45,7 +41,7 @@ func NewHTTPHandler(pool *pgxpool.Pool, cfg ServerConfig) http.Handler {
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return server
 	}, &mcp.StreamableHTTPOptions{JSONResponse: cfg.JSONResponse})
-	return withHostValidation(cfg.AllowedHosts, withCORS(cfg.AllowedOrigins, withAuth(cfg.AuthToken, cfg.OAuthServer, cfg.PersonalTokens, cfg.AllowDemoToken, handler)))
+	return withHostValidation(cfg.AllowedHosts, withCORS(cfg.AllowedOrigins, withAuth(cfg.OAuthServer, cfg.PersonalTokens, handler)))
 }
 
 func NewServer(pool *pgxpool.Pool) *mcp.Server {
@@ -257,14 +253,14 @@ func (t *Tools) DeleteCard(ctx context.Context, _ *mcp.CallToolRequest, input De
 		return nil, DeleteCardOutput{}, errors.New("card_id is required")
 	}
 
-	commandTag, err := t.pool.Exec(ctx, `
+	result, err := t.pool.Exec(ctx, `
 		UPDATE cards SET deleted_at = now(), updated_at = now()
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 	`, cardID, userID)
 	if err != nil {
 		return nil, DeleteCardOutput{}, err
 	}
-	if commandTag.RowsAffected() == 0 {
+	if result.RowsAffected() == 0 {
 		return nil, DeleteCardOutput{}, errors.New("card not found")
 	}
 
@@ -486,15 +482,11 @@ func (t *Tools) loadCard(ctx context.Context, userID string, cardID string) (mod
 	return card, nil
 }
 
-func withAuth(token string, oauthServer *OAuthServer, personal PersonalTokenResolver, allowDemo bool, next http.Handler) http.Handler {
-	if token == "" && oauthServer == nil && personal == nil {
-		if !allowDemo {
-			// 完全没有配置任何认证方式时，拒绝服务而不是把所有人放进 demo 租户。
-			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				http.Error(w, "server has no authentication configured", http.StatusUnauthorized)
-			})
-		}
-		return next
+func withAuth(oauthServer *OAuthServer, personal PersonalTokenResolver, next http.Handler) http.Handler {
+	if oauthServer == nil && personal == nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "server has no authentication configured", http.StatusUnauthorized)
+		})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
@@ -514,12 +506,6 @@ func withAuth(token string, oauthServer *OAuthServer, personal PersonalTokenReso
 			}
 		}
 
-		// 静态 MEMORY_MCP_TOKEN 是分发给客户端的**共享**凭据，所有持有者都会
-		// 落到同一个 demo 租户里互相可见可删，因此默认关闭，需显式打开。
-		if allowDemo && token != "" && (bearer == token || headerToken == token) {
-			serveWithUser(w, r, next, db.DemoUserID)
-			return
-		}
 		if oauthServer != nil {
 			if userID, ok := oauthServer.ValidAccessToken(bearer); ok {
 				serveWithUser(w, r, next, userID)

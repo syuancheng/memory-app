@@ -50,8 +50,8 @@ func newTestService(t *testing.T, ctx context.Context) (*Service, *captureSender
 		t.Skipf("database unavailable: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatalf("migrate: %v", err)
+	if err := db.SetupTestSchema(ctx, pool); err != nil {
+		t.Fatalf("setup test schema: %v", err)
 	}
 
 	sender := newCaptureSender()

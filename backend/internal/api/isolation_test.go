@@ -39,8 +39,8 @@ func newTestEnv(t *testing.T) (http.Handler, *pgxpool.Pool, *auth.Service) {
 		t.Skipf("database unavailable: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatalf("migrate: %v", err)
+	if err := db.SetupTestSchema(ctx, pool); err != nil {
+		t.Fatalf("setup test schema: %v", err)
 	}
 
 	authService, err := auth.NewService(pool, auth.Config{TokenSecret: "isolation-test-secret", DevCodeLog: true})
@@ -82,8 +82,8 @@ func seedUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svc *auth.S
 	}
 	cardID := uuid.NewString()
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO cards (id, user_id, set_id, front_text, answer_text)
-		VALUES ($1, $2, $3, 'front', 'answer')`, cardID, userID, setID); err != nil {
+		INSERT INTO cards (id, user_id, subject_id, set_id, front_text, answer_text)
+		VALUES ($1, $2, $3, $4, 'front', 'answer')`, cardID, userID, subjectID, setID); err != nil {
 		t.Fatalf("seed card: %v", err)
 	}
 

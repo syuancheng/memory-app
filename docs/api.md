@@ -236,7 +236,7 @@ Apple 账号无需验证码。`email` 留空会自动填当前用户邮箱；填
 
 → 200 `{"status":"deleted"}`
 
-软删除：subjects / tags / cards 全部软删，会话与 provider token 撤销，users 置 `deleted_at`。**`review_events` 与 `identities` 保留**。
+软删除：subjects / sets / cards 全部软删，会话与 provider token 撤销，users 置 `deleted_at`。**`review_events` 与 `identities` 保留**。
 
 ---
 
@@ -339,13 +339,13 @@ Apple 账号无需验证码。`email` 留空会自动填当前用户邮箱；填
 
 → 200 `{"status":"deleted"}`。不存在 → 404
 
-**级联**：软删该 subject 的 tags 与 cards，对应 review_states 置 `'deleted'`（一个事务）。
+**级联**：软删该 subject 的 sets 与 cards，对应 review_states 置 `'deleted'`（一个事务）。
 
 ---
 
-## Sets（表名 tags）
+## Sets
 
-### `GET /api/subjects/{subjectID}/tags`
+### `GET /api/subjects/{subjectID}/sets`
 
 → 200
 
@@ -355,19 +355,19 @@ Apple 账号无需验证码。`email` 留空会自动填当前用户邮箱；填
 
 ⚠️ 别人的 subjectID 返回空数组，不报错。
 
-### `POST /api/subjects/{subjectID}/tags`
+### `POST /api/subjects/{subjectID}/sets`
 
 `{"name": "..."}` → **201**。subject 不存在或不属于自己 → **404** `subject not found`
 
-### `PUT /api/subjects/{subjectID}/tags/{tagID}`
+### `PUT /api/subjects/{subjectID}/sets/{setID}`
 
-`{"name": "..."}` → 200。不存在 → **404** `set not found`（注意文案是 set 不是 tag）
+`{"name": "..."}` → 200。不存在 → **404** `set not found`
 
-### `DELETE /api/subjects/{subjectID}/tags/{tagID}`
+### `DELETE /api/subjects/{subjectID}/sets/{setID}`
 
 → 200 `{"status":"deleted"}`
 
-⚠️ **级联软删挂在该 tag 下的所有卡片**，即使那些卡片还挂在别的 tag 上。
+**级联**：软删该 set 下的所有卡片，对应 review_states 置 `'deleted'`。
 
 ---
 
@@ -380,7 +380,7 @@ Query 参数：
 | 参数 | 说明 |
 |---|---|
 | `subject_id` | 按科目过滤 |
-| `tag_ids` | 逗号分隔 |
+| `set_ids` | 逗号分隔 |
 | `search` | 对 front_text / answer_text 做 ILIKE 模糊匹配 |
 
 ⚠️ **limit 硬编码 200，不可通过参数调整。**
@@ -390,7 +390,8 @@ Query 参数：
 ```json
 [{
   "id": "...", "subject_id": "...", "subject_name": "English",
-  "tags": [{"id":"...", "subject_id":"...", "name":"...", "card_count":0, "due_count":0}],
+  "set_id": "...",
+  "set": {"id":"...", "subject_id":"...", "name":"Polite requests", "card_count":4, "due_count":4},
   "card_type": "sentence",
   "direction": "zh_to_en",
   "front_text": "有没有可能明天之前拿到？",
@@ -401,14 +402,11 @@ Query 参数：
 }]
 ```
 
-⚠️ 嵌套 `tags` 里的 `card_count` / `due_count` **恒为 0**，不要依赖。
-
 ### `POST /api/cards`
 
 ```json
 {
-  "subject_id": "...",
-  "tag_ids": ["..."],
+  "set_id": "...",
   "card_type": "sentence",
   "direction": "zh_to_en",
   "front_text": "...",
@@ -428,7 +426,7 @@ Query 参数：
 | 错误 |
 |---|
 | `subject_id is required` / `front_text is required` / `answer_text is required` |
-| `at least one tag_id is required` |
+| `set_id is required` |
 | `subject not found` / `set not found` |
 
 ### `GET /api/cards/{cardID}`
@@ -437,7 +435,7 @@ Query 参数：
 
 ### `PUT /api/cards/{cardID}`
 
-全量覆盖，请求体同 POST。标签是先全删再重插。
+全量覆盖，请求体同 POST。
 
 → 200 完整 Card
 
@@ -471,7 +469,7 @@ review_state 不存在 → **404** `review state not found`
 
 ### `GET /api/review/due`
 
-Query：`subject_id`、`tag_ids`（CSV）、`limit`
+Query：`subject_id`、`set_ids`（CSV）、`limit`
 
 ⚠️ `limit` **默认 30，有效范围 1–100**。超出范围时**静默回落 30**，不报错。
 

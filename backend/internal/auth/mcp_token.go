@@ -22,9 +22,7 @@ type MCPToken struct {
 }
 
 // CreateMCPToken 为指定用户签发一条 MCP 个人访问令牌，返回明文（仅此一次）与元数据。
-//
-// 存在的意义：MCP 的静态 MEMORY_MCP_TOKEN 一律映射到 demo 用户，
-// 无法把卡片写到真实账号。个人令牌把 token 与 user 绑定，解决归属问题。
+// 个人令牌把 token 与 user 绑定，确保 MCP 工具只操作当前用户的数据。
 func (s *Service) CreateMCPToken(ctx context.Context, userID string, name string) (string, MCPToken, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
@@ -80,14 +78,14 @@ func (s *Service) ListMCPTokens(ctx context.Context, userID string) ([]MCPToken,
 
 // RevokeMCPToken 撤销一条令牌；只能撤销自己的。
 func (s *Service) RevokeMCPToken(ctx context.Context, userID string, tokenID string) error {
-	tag, err := s.pool.Exec(ctx, `
+	result, err := s.pool.Exec(ctx, `
 		UPDATE mcp_tokens SET revoked_at = now()
 		WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
 	`, tokenID, userID)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if result.RowsAffected() == 0 {
 		return errors.New("token not found")
 	}
 	return nil

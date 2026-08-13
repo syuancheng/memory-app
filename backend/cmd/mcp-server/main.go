@@ -28,13 +28,6 @@ func main() {
 	}
 	defer pool.Close()
 
-	if err := db.Migrate(ctx, pool); err != nil {
-		log.Fatalf("migrate database: %v", err)
-	}
-	if err := db.EnsureDemoUser(ctx, pool); err != nil {
-		log.Fatalf("ensure demo user: %v", err)
-	}
-
 	authService, err := authpkg.NewService(pool, cfg.Auth)
 	if err != nil {
 		log.Fatalf("configure auth: %v", err)
@@ -56,11 +49,9 @@ func main() {
 	}
 
 	handler := mcpserver.NewHTTPHandler(pool, mcpserver.ServerConfig{
-		AuthToken:      cfg.AuthToken,
 		AllowedHosts:   cfg.AllowedHosts,
 		AllowedOrigins: cfg.AllowedOrigins,
 		JSONResponse:   cfg.JSONResponse,
-		AllowDemoToken: cfg.AllowDemoToken,
 		OAuthServer:    oauthServer,
 		PersonalTokens: authService,
 	})
@@ -89,9 +80,6 @@ func main() {
 
 	go func() {
 		log.Printf("memory MCP server listening on %s", cfg.Addr)
-		if cfg.AuthToken == "" {
-			log.Print("MEMORY_MCP_TOKEN is not set; MCP endpoint is unauthenticated")
-		}
 		if oauthServer != nil {
 			log.Printf("oauth enabled for MCP client %q", oauthServer.ClientID())
 		}

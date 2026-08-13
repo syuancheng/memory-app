@@ -195,12 +195,12 @@ struct MeView: View {
 
     private var profileName: String {
         let name = summary?.user.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return name.isEmpty ? "Demo User" : name
+        return name.isEmpty ? "Cardly User" : name
     }
 
     private var profileEmail: String {
         let email = summary?.user.email.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return email.isEmpty ? "demo@example.com" : email
+        return email.isEmpty ? "No email" : email
     }
 
     private var activityRecords: [DailyLearningRecord] {
@@ -276,12 +276,12 @@ private struct AccountPage: View {
 
     private var name: String {
         let name = summary?.user.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return name.isEmpty ? "Demo User" : name
+        return name.isEmpty ? "Cardly User" : name
     }
 
     private var email: String {
         let email = summary?.user.email.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return email.isEmpty ? "demo@example.com" : email
+        return email.isEmpty ? "No email" : email
     }
 
     private var isAppleAccount: Bool {
@@ -476,8 +476,7 @@ private struct DeleteAccountCodeSheet: View {
 
 /// MCP 个人访问令牌管理。
 ///
-/// 存在的理由：MCP 的静态 MEMORY_MCP_TOKEN 一律映射到 demo 用户，
-/// 通过它创建的卡片进不了自己的账号。个人令牌把 token 绑定到当前登录用户。
+/// 个人令牌把 token 绑定到当前登录用户，确保 MCP 工具只操作自己的数据。
 private struct MCPAccessPage: View {
     private let mcpServerURL = ProcessInfo.processInfo.environment["MEMORY_MCP_SERVER_URL"] ?? "https://mcp.siyuancheng.com/mcp"
     private let chatGPTURL = URL(string: "https://chatgpt.com/")

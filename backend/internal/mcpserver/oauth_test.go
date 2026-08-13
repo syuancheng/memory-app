@@ -187,7 +187,7 @@ func TestOAuthAuthMiddleware(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	handler := withAuth("static-token", server, nil, true, next)
+	handler := withAuth(server, nil, next)
 
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/mcp", nil))
@@ -196,14 +196,6 @@ func TestOAuthAuthMiddleware(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Header().Get("WWW-Authenticate"), ".well-known/oauth-protected-resource") {
 		t.Fatalf("missing WWW-Authenticate metadata: %s", recorder.Header().Get("WWW-Authenticate"))
-	}
-
-	recorder = httptest.NewRecorder()
-	staticRequest := httptest.NewRequest(http.MethodPost, "/mcp", nil)
-	staticRequest.Header.Set("Authorization", "Bearer static-token")
-	handler.ServeHTTP(recorder, staticRequest)
-	if recorder.Code != http.StatusNoContent {
-		t.Fatalf("static token status = %d", recorder.Code)
 	}
 
 	token, err := server.issueAccessToken("", "https://mcp.siyuancheng.com/mcp", "00000000-0000-0000-0000-000000000001")

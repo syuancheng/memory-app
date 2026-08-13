@@ -7,7 +7,7 @@
 | `cmd/server` | 8080 | REST API，服务 iOS 客户端 |
 | `cmd/mcp-server` | 3001 | MCP server，服务 ChatGPT 等 AI 客户端 |
 
-两者共用 `internal/` 下所有包。差别只在入口：`cmd/server` 启动时会调 `EnsureDemoData` 灌 12 张演示卡，`cmd/mcp-server` 只调 `EnsureDemoUser`。
+两者共用 `internal/` 下所有包。入口只负责打开数据库、装配服务和启动 HTTP server；不会在启动时建表、迁移或灌演示数据。
 
 ## 依赖
 
@@ -35,37 +35,36 @@ erDiagram
     users ||--o{ mcp_tokens : "个人令牌"
     users ||--o{ account_connections : "Apple"
     users ||--o{ subjects : ""
-    users ||--o{ tags : ""
+    users ||--o{ sets : ""
     users ||--o{ cards : ""
     users ||--o{ review_events : ""
-    subjects ||--o{ tags : ""
+    subjects ||--o{ sets : ""
     subjects ||--o{ cards : ""
-    cards ||--o{ card_tags : ""
-    tags ||--o{ card_tags : ""
+    sets ||--o{ cards : ""
     cards ||--|| review_states : "1:1"
     cards ||--o{ review_events : ""
 ```
 
 `auth_verification_codes` 与 `auth_provider_tokens` 不在图中：前者**完全没有外键**（按 identifier 字符串关联，因为发码时用户可能还不存在），后者只被 Apple 登录写入。
 
-全部 DDL 在 `internal/db/db.go` 的 `migrationSQL` 常量里。
+生产 schema 由部署/一次性 SQL 管理；服务启动时不运行 migration。测试使用 `internal/db/db.go` 里的 `SetupTestSchema` 创建测试所需表。
 
 ### 业务表
 
 **subjects** — `id, user_id, name, created_at, updated_at, deleted_at`，`UNIQUE(user_id, name)`
 
-**tags**（对外叫 Set）— `id, user_id, subject_id, name, ...`，`UNIQUE(user_id, subject_id, name)`。注意它**同时**带 `user_id` 和 `subject_id`，冗余但让归属校验能一条 SQL 完成。
+**sets** — `id, user_id, subject_id, name, ...`，`UNIQUE(user_id, subject_id, name)`。
 
 **cards** — 除常规字段外：
 
 | 列 | 说明 |
 |---|---|
+| `subject_id` | 冗余存储所属 subject，便于过滤与隔离校验 |
+| `set_id` | 所属 set |
 | `card_type` | `word` / `sentence`，默认 `sentence` |
 | `direction` | `zh_to_en` / `en_to_zh`，默认 `zh_to_en`。**由后端推断，不接受客户端指定** |
 | `grammar_phrases` | JSONB `[{"text":..,"note":..}]` |
 | `answer_tokens` | JSONB `[{"text":..,"index":..}]`，写入时生成，见下文分词 |
-
-**card_tags** — `PRIMARY KEY(card_id, tag_id)`。**唯一会被真正 DELETE 的表**：更新卡片标签时先全删再重插。
 
 **review_states** — `card_id` 既是主键也是外键，与 cards 严格 1:1。
 
@@ -98,47 +97,39 @@ erDiagram
 
 | 方式 | 表 | 表现 |
 |---|---|---|
-| 软删 `deleted_at` | users, subjects, tags, cards | 所有查询都带 `deleted_at IS NULL` |
+| 软删 `deleted_at` | users, subjects, sets, cards | 所有查询都带 `deleted_at IS NULL` |
 | 状态标记 | review_states | 无 `deleted_at` 列，改写 `status = 'deleted'` |
 | 撤销 `revoked_at` | auth_sessions, mcp_tokens, auth_provider_tokens | 从不物理删除 |
 | 消费 `consumed_at` | auth_verification_codes | 标记已用，**无清理任务** |
-| 真删 `DELETE` | card_tags | 唯一一处 |
 | **从不删除** | review_events, identities, account_connections | 连删账号都不清 |
 
 ### 级联链路
 
 ```
-删 subject  → 软删该 subject 的 tags
+删 subject  → 软删该 subject 的 sets
             → 软删该 subject 的 cards
             → 对应 review_states 置 'deleted'
             （一个事务）
 
-删 tag      → 软删挂该 tag 的 cards
+删 set      → 软删该 set 下的 cards
             → 对应 review_states 置 'deleted'
 
-删账号      → subjects / tags / cards 全部软删
+删账号      → subjects / sets / cards 全部软删
             → review_states 置 'deleted'
             → sessions 与 provider tokens 撤销
             → users 置 deleted_at + status='deleted'
             （review_events 与 identities 保留）
 ```
 
-⚠️ **删 tag 会连带删除挂在它下面的所有卡片**，即使那些卡片同时还挂在别的 tag 上。这是当前实现，不确定是否是产品本意。
-
 ⚠️ 软删账号后，**用同一邮箱再登录一次账号就会原地复活**（`FindOrCreateUser` 里 `deleted_at = NULL`），数据也还在。
 
-## 迁移机制
+## Schema 管理
 
-单个 `migrationSQL` 字符串常量，启动时一次 `pool.Exec` 执行，全部语句用 `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` / `ON CONFLICT DO NOTHING` 保证幂等。
+生产服务不再携带启动 migration。结构变更应通过部署前的一次性 SQL 或独立迁移流程完成，避免每次进程启动都重复 DDL / backfill。
 
-**没有版本号表，没有迁移历史。** 代价：
+当前代码库只保留测试专用 `SetupTestSchema`，用于本地/CI 测试在空库里创建必要表。
 
-- 无法回滚
-- 无法表达「先改数据再改结构」这类顺序依赖
-- 数据回填语句（如 identities 的邮箱回填）会在每次启动时重跑，只能靠 `ON CONFLICT DO NOTHING` 兜住
-- 破坏性变更（改列类型、删列）没有安全的写法
-
-目前规模下够用，但**加破坏性变更前应该先引入真正的迁移工具**。
+以后如果 schema 变更变频繁，应引入带版本号的迁移工具，而不是把 DDL 放回服务启动路径。
 
 ## 复习算法
 
@@ -211,7 +202,6 @@ en_to_zh → 整句作为单个 token
 
 1. **`auth_verification_codes` 无清理任务**。只标记 `consumed_at`，行数只增不减。长期运行需要加定期清理（比如删除 `created_at < now() - 30 days` 的行）。
 2. **`review_events` 删账号时不清理**，用户数据删除不彻底。若要满足 GDPR 类要求需补上。
-3. **删 tag 会连带软删其下所有卡片**，即使卡片还挂在其他 tag 上。
-4. **软删账号可被同邮箱登录复活**，没有「永久删除」路径。
-5. **迁移无版本管理**，见上文。
-6. `idx_auth_codes_identifier` 索引是 `(identifier, purpose, created_at DESC)`，**不含 `identifier_type`**，但查询条件含它——索引未完全覆盖查询。当前数据量下无影响。
+3. **软删账号可被同邮箱登录复活**，没有「永久删除」路径。
+4. **schema 变更没有版本管理**，见上文。
+5. `idx_auth_codes_identifier` 索引是 `(identifier, purpose, created_at DESC)`，**不含 `identifier_type`**，但查询条件含它——索引未完全覆盖查询。当前数据量下无影响。

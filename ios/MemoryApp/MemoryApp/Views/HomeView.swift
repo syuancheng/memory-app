@@ -251,7 +251,7 @@ struct CardsView: View {
                     ContentUnavailableView(
                         searchText.isEmpty ? "No cards yet" : "No matching cards",
                         systemImage: "rectangle.stack",
-                        description: Text(searchText.isEmpty ? "Use the plus button to add your first English card." : "Try a different word, answer, subject, or tag.")
+                        description: Text(searchText.isEmpty ? "Use the plus button to add your first English card." : "Try a different word, answer, subject, or set.")
                     )
                 }
             }
