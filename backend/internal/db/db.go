@@ -95,12 +95,16 @@ CREATE TABLE IF NOT EXISTS review_events (
   id UUID PRIMARY KEY,
   card_id UUID NOT NULL REFERENCES cards(id),
   user_id UUID NOT NULL REFERENCES users(id),
+  client_review_id TEXT,
   mode TEXT NOT NULL,
   rating TEXT NOT NULL,
   revealed_tokens_count INTEGER,
   total_tokens_count INTEGER,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE review_events
+ADD COLUMN IF NOT EXISTS client_review_id TEXT;
 
 CREATE TABLE IF NOT EXISTS auth_verification_codes (
   id UUID PRIMARY KEY,
@@ -185,6 +189,9 @@ CREATE INDEX IF NOT EXISTS idx_cards_user_subject_active ON cards(user_id, subje
 CREATE INDEX IF NOT EXISTS idx_review_states_due ON review_states(due_at) WHERE status NOT IN ('deleted', 'mastered');
 CREATE INDEX IF NOT EXISTS idx_review_states_active_due_card ON review_states(due_at, card_id) WHERE status NOT IN ('deleted', 'mastered');
 CREATE INDEX IF NOT EXISTS idx_review_events_user_created_at ON review_events(user_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_review_events_user_client_review_id
+  ON review_events(user_id, client_review_id)
+  WHERE client_review_id IS NOT NULL AND client_review_id <> '';
 CREATE INDEX IF NOT EXISTS idx_users_email_active ON users(lower(email)) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_auth_codes_identifier ON auth_verification_codes(identifier, purpose, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_auth_codes_active_lookup ON auth_verification_codes(identifier_type, identifier, purpose, created_at DESC) WHERE consumed_at IS NULL;

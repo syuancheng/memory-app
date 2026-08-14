@@ -34,6 +34,7 @@ type cardRequest struct {
 
 type reviewResultRequest struct {
 	CardID              string `json:"card_id"`
+	ClientReviewID      string `json:"client_review_id"`
 	Mode                string `json:"mode"`
 	Rating              string `json:"rating"`
 	RevealedTokensCount int    `json:"revealed_tokens_count"`
@@ -708,13 +709,35 @@ func (s *Server) submitReviewResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.ClientReviewID != "" {
+		var existingCardID string
+		err = tx.QueryRow(r.Context(), `
+			SELECT card_id::text
+			FROM review_events
+			WHERE user_id = $1 AND client_review_id = $2
+			LIMIT 1
+		`, userID, req.ClientReviewID).Scan(&existingCardID)
+		if err == nil {
+			if existingCardID != req.CardID {
+				writeError(w, http.StatusConflict, "client_review_id already used")
+				return
+			}
+			writeJSON(w, http.StatusOK, state)
+			return
+		}
+		if err != pgx.ErrNoRows {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
 	now := time.Now().UTC()
 	next := scheduler.Apply(state, req.Rating, now)
 	_, err = tx.Exec(r.Context(), `
 		INSERT INTO review_events (
-			id, card_id, user_id, mode, rating, revealed_tokens_count, total_tokens_count
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, uuid.NewString(), req.CardID, userID, req.Mode, req.Rating, req.RevealedTokensCount, req.TotalTokensCount)
+			id, card_id, user_id, client_review_id, mode, rating, revealed_tokens_count, total_tokens_count
+		) VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8)
+	`, uuid.NewString(), req.CardID, userID, req.ClientReviewID, req.Mode, req.Rating, req.RevealedTokensCount, req.TotalTokensCount)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

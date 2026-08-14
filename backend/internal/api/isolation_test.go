@@ -93,6 +93,7 @@ func seedUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svc *auth.S
 	}
 
 	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM review_events WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM review_states WHERE card_id = $1`, cardID)
 		_, _ = pool.Exec(ctx, `DELETE FROM cards WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM sets WHERE user_id = $1`, userID)
@@ -167,6 +168,58 @@ func TestCannotReachAnotherUsersCard(t *testing.T) {
 	}
 	if front != "front" {
 		t.Fatalf("Alice's card was modified: %q", front)
+	}
+}
+
+func TestReviewResultIsIdempotentWithClientReviewID(t *testing.T) {
+	ctx := context.Background()
+	handler, pool, svc := newTestEnv(t)
+	user := seedUser(t, ctx, pool, svc)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO review_states (card_id)
+		VALUES ($1)
+	`, user.CardID); err != nil {
+		t.Fatalf("seed review state: %v", err)
+	}
+
+	clientReviewID := uuid.NewString()
+	body := map[string]any{
+		"card_id":          user.CardID,
+		"client_review_id": clientReviewID,
+		"mode":             "review",
+		"rating":           "good",
+	}
+	first := call(t, handler, http.MethodPost, "/api/review/result", user.Token, body)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first review failed: status %d body %s", first.Code, first.Body.String())
+	}
+	second := call(t, handler, http.MethodPost, "/api/review/result", user.Token, body)
+	if second.Code != http.StatusOK {
+		t.Fatalf("idempotent retry failed: status %d body %s", second.Code, second.Body.String())
+	}
+
+	var reviewCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT review_count
+		FROM review_states
+		WHERE card_id = $1
+	`, user.CardID).Scan(&reviewCount); err != nil {
+		t.Fatalf("load review count: %v", err)
+	}
+	if reviewCount != 1 {
+		t.Fatalf("review_count = %d, want 1", reviewCount)
+	}
+
+	var eventCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM review_events
+		WHERE user_id = $1 AND client_review_id = $2
+	`, user.ID, clientReviewID).Scan(&eventCount); err != nil {
+		t.Fatalf("count review events: %v", err)
+	}
+	if eventCount != 1 {
+		t.Fatalf("review event count = %d, want 1", eventCount)
 	}
 }
 

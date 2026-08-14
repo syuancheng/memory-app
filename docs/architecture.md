@@ -129,6 +129,8 @@ erDiagram
 
 当前代码库只保留测试专用 `SetupTestSchema`，用于本地/CI 测试在空库里创建必要表。
 
+一次性生产 SQL 放在 [`docs/sql/`](sql/) 下。上线包含 schema 变更的后端代码前，先在生产库执行对应 SQL；例如 Review 乐观提交需要 `review_events.client_review_id` 与 `idx_review_events_user_client_review_id`。
+
 以后如果 schema 变更变频繁，应引入带版本号的迁移工具，而不是把 DDL 放回服务启动路径。
 
 ## 复习算法

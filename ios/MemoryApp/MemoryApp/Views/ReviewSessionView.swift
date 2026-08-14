@@ -6,6 +6,7 @@ struct ReviewSessionView: View {
     let setIDs: [String]
     let onClose: () -> Void
     @EnvironmentObject private var dataStore: AppDataStore
+    @EnvironmentObject private var session: AuthSessionStore
     @State private var cards: [ReviewCard] = []
     @State private var reviewStep = 0
     @State private var initialCardCount = 0
@@ -110,22 +111,40 @@ struct ReviewSessionView: View {
             gradePreviews = []
             errorMessage = error.localizedDescription
         }
+        preloadUpcomingGradePreview()
     }
 
     private func submit(rating: Rating, revealedCount: Int) async {
         guard let currentCard else {
             return
         }
+        let submittedCard = currentCard
+        guard let userID = session.user?.id, !userID.isEmpty else {
+            errorMessage = "Please sign in again."
+            return
+        }
+        let submission = PendingReviewSubmission(
+            id: UUID().uuidString,
+            cardID: submittedCard.id,
+            mode: mode.rawValue,
+            rating: rating,
+            revealedTokensCount: revealedCount,
+            totalTokensCount: submittedCard.answerTokens.count,
+            createdAt: Date()
+        )
         errorMessage = nil
-        do {
-            _ = try await APIClient.shared.submitReview(card: currentCard, mode: mode, rating: rating, revealedCount: revealedCount)
-            dataStore.invalidateAfterReviewMutation(cardID: currentCard.id)
-            Task {
+        PendingReviewStore.enqueue(submission, userID: userID)
+
+        removeCurrentCardFromQueue()
+
+        Task {
+            let didSync = await PendingReviewStore.submitWithRetry(submission, userID: userID)
+            if didSync {
+                dataStore.invalidateAfterReviewMutation(cardID: submittedCard.id)
                 await dataStore.warmHome()
+            } else {
+                errorMessage = "Review saved locally. It will sync when the connection is stable."
             }
-            removeCurrentCardFromQueue()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 
@@ -165,6 +184,7 @@ struct ReviewSessionView: View {
 
     private func removeCurrentCardFromQueue() {
         let nextCompletedCount = completedCount + 1
+        let nextCard = cards.dropFirst().first
         completedCount = nextCompletedCount
         if !cards.isEmpty {
             cards.removeFirst()
@@ -174,9 +194,20 @@ struct ReviewSessionView: View {
             lastReviewSummary = "Completed \(nextCompletedCount) cards"
             gradePreviews = []
         } else {
+            gradePreviews = nextCard.flatMap { dataStore.cachedReviewPreviews(cardID: $0.id) } ?? []
             Task {
                 await loadGradePreviews()
             }
+        }
+    }
+
+    private func preloadUpcomingGradePreview() {
+        guard cards.count > 1 else {
+            return
+        }
+        let upcomingCard = cards[1]
+        Task {
+            _ = await dataStore.preloadReviewPreviews(cardID: upcomingCard.id)
         }
     }
 

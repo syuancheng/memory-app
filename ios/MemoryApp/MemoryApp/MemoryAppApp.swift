@@ -88,7 +88,18 @@ struct AppShellView: View {
         }
         .task {
             dataStore.configure(userID: session.user?.id)
+            await flushPendingReviews()
             await dataStore.warmAfterSignIn()
+        }
+    }
+
+    private func flushPendingReviews() async {
+        guard let userID = session.user?.id, !userID.isEmpty else {
+            return
+        }
+        let syncedCount = await PendingReviewStore.flush(userID: userID)
+        if syncedCount > 0 {
+            dataStore.invalidateSummary()
         }
     }
 }

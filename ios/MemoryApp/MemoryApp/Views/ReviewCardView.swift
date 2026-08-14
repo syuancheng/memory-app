@@ -41,6 +41,7 @@ struct ReviewCardView: View {
     @State private var side: CardSide = .front
     @State private var revealedTokenIndexes: Set<Int> = []
     @State private var isSubmitting = false
+    @State private var isAdvancing = false
     @StateObject private var speechManager = SpeechManager.shared
     @AppStorage("reviewEnglishVoice") private var englishVoice = ReviewEnglishVoice.american.rawValue
 
@@ -88,26 +89,28 @@ struct ReviewCardView: View {
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.985)))
 
-                feedbackBar
-                    .padding(.horizontal, AppLayout.screenMargin)
-                    .padding(.top, AppSpace.sm)
-                    .padding(.bottom, AppSpace.md)
-                    .background(AppColor.surfaceBase)
-                    .overlay(alignment: .top) {
-                        Rectangle()
-                            .fill(AppColor.separator)
-                            .frame(height: AppLayout.separatorHeight)
-                    }
+                if !isAdvancing {
+                    feedbackBar
+                        .padding(.horizontal, AppLayout.screenMargin)
+                        .padding(.top, AppSpace.sm)
+                        .padding(.bottom, AppSpace.md)
+                        .background(AppColor.surfaceBase)
+                        .overlay(alignment: .top) {
+                            Rectangle()
+                                .fill(AppColor.separator)
+                                .frame(height: AppLayout.separatorHeight)
+                        }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(AppColor.surfaceBase.ignoresSafeArea())
         .animation(AppMotion.standard, value: side)
         .onChange(of: card.id) { _, _ in
-            resetCardInteraction()
+            resetCardInteractionWithoutAnimation()
         }
         .onChange(of: resetToken) { _, _ in
-            resetCardInteraction()
+            resetCardInteractionWithoutAnimation()
         }
         .onDisappear {
             stopSpeakingAnswer()
@@ -418,6 +421,15 @@ struct ReviewCardView: View {
         side = .front
         revealedTokenIndexes = []
         isSubmitting = false
+        isAdvancing = false
+    }
+
+    private func resetCardInteractionWithoutAnimation() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            resetCardInteraction()
+        }
     }
 
     private func submit(_ rating: Rating) async {
@@ -425,9 +437,13 @@ struct ReviewCardView: View {
             return
         }
         stopSpeakingAnswer()
-        isSubmitting = true
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isSubmitting = true
+            isAdvancing = true
+        }
         await onRate(rating, revealedTokenIndexes.count)
-        isSubmitting = false
     }
 
     private func revealAllTokens() {
