@@ -10,6 +10,8 @@ struct CardsHierarchyView: View {
 }
 
 private struct CardsRootPage: View {
+    @EnvironmentObject private var dataStore: AppDataStore
+
     @State private var subjects: [AppSubject] = []
     @State private var setsBySubjectID: [String: [AppSet]] = [:]
     @State private var cards: [ReviewCard] = []
@@ -32,13 +34,13 @@ private struct CardsRootPage: View {
                 || subjectDescription(subject).normalizedQuery.contains(query)
                 || (setsBySubjectID[subject.id] ?? []).contains { $0.name.normalizedQuery.contains(query) }
                 || cards.contains { card in
-	                    card.subjectID == subject.id
-	                        && (card.frontText.normalizedQuery.contains(query)
-	                            || card.answerText.normalizedQuery.contains(query)
-	                            || card.set.name.normalizedQuery.contains(query))
-	                }
-	        }
-	    }
+                    card.subjectID == subject.id
+                        && (card.frontText.normalizedQuery.contains(query)
+                            || card.answerText.normalizedQuery.contains(query)
+                            || card.set.name.normalizedQuery.contains(query))
+                }
+        }
+    }
 
     var body: some View {
         CardsManagementPage(
@@ -91,34 +93,43 @@ private struct CardsRootPage: View {
         .task {
             await loadData()
         }
+        .onReceive(dataStore.$subjects) { _ in
+            applyCachedLibrary()
+        }
+        .onReceive(dataStore.$sets) { _ in
+            applyCachedLibrary()
+        }
+        .onReceive(dataStore.$cards) { _ in
+            applyCachedLibrary()
+        }
         .refreshable {
-            await loadData()
+            await loadData(force: true)
         }
         .fullScreenCover(item: $activeSheet) { sheet in
             switch sheet {
             case .addSubject:
                 SubjectEditPage(subject: nil, metadata: nil) {
-                    await loadData()
+                    await loadData(force: true)
                 }
             case .editSubject(let subject):
                 SubjectEditPage(subject: subject, metadata: subjectMetadata[subject.id]) {
-                    await loadData()
+                    await loadData(force: true)
                 }
             case .addSet(let subject):
                 SetEditPage(subjects: subjects, fixedSubject: subject, set: nil, metadata: nil) {
-                    await loadData()
+                    await loadData(force: true)
                 }
             case .editSet(let subject, let set):
                 SetEditPage(subjects: subjects, fixedSubject: subject, set: set, metadata: CardsMetadataStore.setMetadata()[set.id]) {
-                    await loadData()
+                    await loadData(force: true)
                 }
             case .addCard(let subject, let set):
                 CardEditPage(card: nil, subjects: subjects, fixedSubject: subject, fixedSet: set) {
-                    await loadData()
+                    await loadData(force: true)
                 }
             case .editCard(let card, let subject):
                 CardEditPage(card: card, subjects: subjects, fixedSubject: subject, fixedSet: nil) {
-                    await loadData()
+                    await loadData(force: true)
                 }
             }
         }
@@ -170,21 +181,20 @@ private struct CardsRootPage: View {
         .accessibilityLabel("Create")
     }
 
-    private func loadData() async {
+    private func loadData(force: Bool = false) async {
+        if !force {
+            applyCachedLibrary()
+        }
+
         isLoading = true
         errorMessage = nil
         do {
-	            async let loadedSubjects = APIClient.shared.listSubjects()
-	            async let loadedSets = APIClient.shared.listSets()
-	            async let loadedCards = APIClient.shared.listCards()
-	            let resolvedSubjects = try await loadedSubjects
-	            let resolvedSets = try await loadedSets
-	            let resolvedCards = try await loadedCards
+            let library = try await dataStore.refreshLibrary(force: force)
 
-	            let setMap = Dictionary(grouping: resolvedSets, by: \.subjectID)
+            let setMap = Dictionary(grouping: library.sets, by: \.subjectID)
 
-            subjects = resolvedSubjects
-            cards = resolvedCards
+            subjects = library.subjects
+            cards = library.cards
             setsBySubjectID = setMap
             subjectMetadata = CardsMetadataStore.subjectMetadata()
         } catch {
@@ -193,11 +203,23 @@ private struct CardsRootPage: View {
         isLoading = false
     }
 
+    private func applyCachedLibrary() {
+        guard let cached = dataStore.cachedLibrary else {
+            return
+        }
+
+        subjects = cached.subjects
+        cards = cached.cards
+        setsBySubjectID = Dictionary(grouping: cached.sets, by: \.subjectID)
+        subjectMetadata = CardsMetadataStore.subjectMetadata()
+    }
+
     private func delete(_ subject: AppSubject) async {
         do {
             try await APIClient.shared.deleteSubject(subjectID: subject.id)
+            dataStore.invalidateAfterSubjectMutation()
             deletingSubject = nil
-            await loadData()
+            await loadData(force: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -208,6 +230,7 @@ private struct SubjectSetsPage: View {
     let subject: AppSubject
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var dataStore: AppDataStore
     @State private var sets: [AppSet] = []
     @State private var cards: [ReviewCard] = []
     @State private var setMetadata: [String: SetPresentation] = [:]
@@ -226,12 +249,12 @@ private struct SubjectSetsPage: View {
 
         return sets.filter { set in
             set.name.normalizedQuery.contains(query)
-	                || setDescription(set, subject: subject).normalizedQuery.contains(query)
-	                || cards.contains { card in
-	                    card.set.id == set.id
-	                        && (card.frontText.normalizedQuery.contains(query)
-	                            || card.answerText.normalizedQuery.contains(query))
-	                }
+                || setDescription(set, subject: subject).normalizedQuery.contains(query)
+                || cards.contains { card in
+                    card.set.id == set.id
+                        && (card.frontText.normalizedQuery.contains(query)
+                            || card.answerText.normalizedQuery.contains(query))
+                }
         }
     }
 
@@ -284,26 +307,36 @@ private struct SubjectSetsPage: View {
         .task {
             await loadData()
         }
+        .onReceive(dataStore.$sets) { _ in
+            applyCachedSubjectData()
+        }
+        .onReceive(dataStore.$cards) { _ in
+            applyCachedSubjectData()
+        }
         .refreshable {
-            await loadData()
+            await loadData(force: true)
         }
         .fullScreenCover(item: $activeSheet) { sheet in
             switch sheet {
             case .addSet(_):
                 SetEditPage(subjects: [subject], fixedSubject: subject, set: nil, metadata: nil) {
-                    await loadData()
+                    await loadData(force: true)
+                    await dataStore.warmLibrary()
                 }
             case .editSet(_, let set):
                 SetEditPage(subjects: [subject], fixedSubject: subject, set: set, metadata: setMetadata[set.id]) {
-                    await loadData()
+                    await loadData(force: true)
+                    await dataStore.warmLibrary()
                 }
             case .addCard(_, let set):
                 CardEditPage(card: nil, subjects: [subject], fixedSubject: subject, fixedSet: set) {
-                    await loadData()
+                    await loadData(force: true)
+                    await dataStore.warmLibrary()
                 }
             case .editCard(let card, _):
                 CardEditPage(card: card, subjects: [subject], fixedSubject: subject, fixedSet: nil) {
-                    await loadData()
+                    await loadData(force: true)
+                    await dataStore.warmLibrary()
                 }
             case .addSubject, .editSubject:
                 EmptyView()
@@ -350,12 +383,16 @@ private struct SubjectSetsPage: View {
         .accessibilityLabel("Create")
     }
 
-    private func loadData() async {
+    private func loadData(force: Bool = false) async {
+        if !force {
+            applyCachedSubjectData()
+        }
+
         isLoading = true
         errorMessage = nil
         do {
-            async let loadedSets = APIClient.shared.listSets(subjectID: subject.id)
-            async let loadedCards = APIClient.shared.listCards(subjectID: subject.id)
+            async let loadedSets = dataStore.refreshSets(subjectID: subject.id, force: force)
+            async let loadedCards = dataStore.refreshCards(subjectID: subject.id, force: force)
             sets = try await loadedSets
             cards = try await loadedCards
             setMetadata = CardsMetadataStore.setMetadata()
@@ -365,11 +402,23 @@ private struct SubjectSetsPage: View {
         isLoading = false
     }
 
+    private func applyCachedSubjectData() {
+        if let cachedSets = dataStore.cachedSets(subjectID: subject.id) {
+            sets = cachedSets
+        }
+        if let cachedCards = dataStore.cachedCards(subjectID: subject.id) {
+            cards = cachedCards
+        }
+        setMetadata = CardsMetadataStore.setMetadata()
+    }
+
     private func delete(_ set: AppSet) async {
         do {
             try await APIClient.shared.deleteSet(subjectID: subject.id, setID: set.id)
+            dataStore.invalidateAfterSetMutation()
             deletingSet = nil
-            await loadData()
+            await loadData(force: true)
+            await dataStore.warmLibrary()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -381,6 +430,7 @@ private struct SetCardsPage: View {
     let set: AppSet
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var dataStore: AppDataStore
     @State private var cards: [ReviewCard] = []
     @State private var searchText = ""
     @State private var activeSheet: CardsSheet?
@@ -394,11 +444,11 @@ private struct SetCardsPage: View {
             return cards
         }
 
-	        return cards.filter { card in
-	            card.frontText.normalizedQuery.contains(query)
-	                || card.answerText.normalizedQuery.contains(query)
-	                || card.set.name.normalizedQuery.contains(query)
-	        }
+        return cards.filter { card in
+            card.frontText.normalizedQuery.contains(query)
+                || card.answerText.normalizedQuery.contains(query)
+                || card.set.name.normalizedQuery.contains(query)
+        }
     }
 
     var body: some View {
@@ -443,18 +493,23 @@ private struct SetCardsPage: View {
         .task {
             await loadData()
         }
+        .onReceive(dataStore.$cards) { _ in
+            applyCachedSetData()
+        }
         .refreshable {
-            await loadData()
+            await loadData(force: true)
         }
         .fullScreenCover(item: $activeSheet) { sheet in
             switch sheet {
             case .addCard(_, _):
                 CardEditPage(card: nil, subjects: [subject], fixedSubject: subject, fixedSet: set) {
-                    await loadData()
+                    await loadData(force: true)
+                    await dataStore.warmLibrary()
                 }
             case .editCard(let card, _):
                 CardEditPage(card: card, subjects: [subject], fixedSubject: subject, fixedSet: nil) {
-                    await loadData()
+                    await loadData(force: true)
+                    await dataStore.warmLibrary()
                 }
             case .addSubject, .editSubject, .addSet, .editSet:
                 EmptyView()
@@ -495,22 +550,34 @@ private struct SetCardsPage: View {
         .accessibilityLabel("Create")
     }
 
-    private func loadData() async {
+    private func loadData(force: Bool = false) async {
+        if !force {
+            applyCachedSetData()
+        }
+
         isLoading = true
         errorMessage = nil
         do {
-            cards = try await APIClient.shared.listCards(subjectID: subject.id, setIDs: [set.id])
+            cards = try await dataStore.refreshCards(subjectID: subject.id, setIDs: [set.id], force: force)
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
     }
 
+    private func applyCachedSetData() {
+        if let cachedCards = dataStore.cachedCards(subjectID: subject.id, setIDs: [set.id]) {
+            cards = cachedCards
+        }
+    }
+
     private func delete(_ card: ReviewCard) async {
         do {
             try await APIClient.shared.deleteCard(card)
+            dataStore.invalidateAfterCardMutation(cardID: card.id)
             deletingCard = nil
-            await loadData()
+            await loadData(force: true)
+            await dataStore.warmLibrary()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -879,6 +946,7 @@ private struct SubjectEditPage: View {
     let onDone: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var dataStore: AppDataStore
     @State private var name: String
     @State private var description: String
     @State private var initial: String
@@ -965,6 +1033,7 @@ private struct SubjectEditPage: View {
                 ),
                 for: savedSubject.id
             )
+            dataStore.invalidateAfterSubjectMutation()
             dismiss()
             await onDone()
         } catch {
@@ -982,6 +1051,7 @@ private struct SubjectEditPage: View {
         do {
             try await APIClient.shared.deleteSubject(subjectID: subject.id)
             CardsMetadataStore.removeSubjectMetadata(subject.id)
+            dataStore.invalidateAfterSubjectMutation()
             dismiss()
             await onDone()
         } catch {
@@ -1007,6 +1077,7 @@ private struct SetEditPage: View {
     let onDone: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var dataStore: AppDataStore
     @State private var selectedSubjectID: String
     @State private var name: String
     @State private var description: String
@@ -1115,6 +1186,7 @@ private struct SetEditPage: View {
                 SetPresentation(description: description.trimmed, defaultMode: defaultMode.rawValue),
                 for: savedSet.id
             )
+            dataStore.invalidateAfterSetMutation()
             dismiss()
             await onDone()
         } catch {
@@ -1132,6 +1204,7 @@ private struct SetEditPage: View {
         do {
             try await APIClient.shared.deleteSet(subjectID: set.subjectID, setID: set.id)
             CardsMetadataStore.removeSetMetadata(set.id)
+            dataStore.invalidateAfterSetMutation()
             dismiss()
             await onDone()
         } catch {
@@ -1149,6 +1222,7 @@ private struct CardEditPage: View {
     let onDone: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var dataStore: AppDataStore
     @State private var selectedSubjectID: String
     @State private var availableSets: [AppSet] = []
     @State private var selectedSetID: String
@@ -1168,7 +1242,7 @@ private struct CardEditPage: View {
         self.onDone = onDone
 
         let initialSubjectID = fixedSubject?.id ?? card?.subjectID ?? subjects.first?.id ?? ""
-	        let initialSetID = fixedSet?.id ?? card?.set.id ?? ""
+        let initialSetID = fixedSet?.id ?? card?.set.id ?? ""
         _selectedSubjectID = State(initialValue: initialSubjectID)
         _selectedSetID = State(initialValue: initialSetID)
         _cardType = State(initialValue: CardsCardType(normalizing: card?.cardType))
@@ -1294,7 +1368,7 @@ private struct CardEditPage: View {
         }
 
         do {
-            availableSets = try await APIClient.shared.listSets(subjectID: selectedSubjectID)
+            availableSets = try await dataStore.refreshSets(subjectID: selectedSubjectID, force: false)
             if let fixedSet {
                 selectedSetID = fixedSet.id
             } else if resetSelection || !availableSets.contains(where: { $0.id == selectedSetID }) {
@@ -1312,9 +1386,9 @@ private struct CardEditPage: View {
 
         isSaving = true
         errorMessage = nil
-	        let payload = CardPayload(
-	            setID: selectedSetID,
-	            cardType: cardType.rawValue,
+        let payload = CardPayload(
+            setID: selectedSetID,
+            cardType: cardType.rawValue,
             direction: CardDirection.detected(fromFront: frontText.trimmed).rawValue,
             frontText: frontText.trimmed,
             answerText: answerText.trimmed,
@@ -1331,6 +1405,7 @@ private struct CardEditPage: View {
             } else {
                 _ = try await APIClient.shared.createCard(payload)
             }
+            dataStore.invalidateAfterCardMutation(cardID: card?.id)
             dismiss()
             await onDone()
         } catch {
@@ -1347,6 +1422,7 @@ private struct CardEditPage: View {
         errorMessage = nil
         do {
             try await APIClient.shared.deleteCard(card)
+            dataStore.invalidateAfterCardMutation(cardID: card.id)
             dismiss()
             await onDone()
         } catch {
@@ -1778,6 +1854,6 @@ private func setDescription(_ set: AppSet, subject: AppSubject) -> String {
 }
 
 private func cardMetadata(_ card: ReviewCard) -> String {
-	    let subjectName = card.subjectName ?? "English"
-	    return "\(subjectName) · \(card.set.name)"
-	}
+    let subjectName = card.subjectName ?? "English"
+    return "\(subjectName) · \(card.set.name)"
+}

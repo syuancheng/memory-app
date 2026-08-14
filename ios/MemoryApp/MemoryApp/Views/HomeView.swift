@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct HomeView: View {
+    @EnvironmentObject private var dataStore: AppDataStore
+
     @State private var subjects: [AppSubject] = []
     @State private var summary: MeSummary?
     @State private var showingSubjects = false
@@ -37,10 +39,20 @@ struct HomeView: View {
         .task {
             await loadHomeData()
         }
+        .onReceive(dataStore.$subjects) { loadedSubjects in
+            if !loadedSubjects.isEmpty {
+                subjects = loadedSubjects
+            }
+        }
+        .onReceive(dataStore.$summary) { loadedSummary in
+            if let loadedSummary {
+                summary = loadedSummary
+            }
+        }
         .onChange(of: showingSubjects) { _, isPresented in
             if !isPresented {
                 Task {
-                    await loadHomeData()
+                    await loadHomeData(force: true)
                 }
             }
         }
@@ -156,14 +168,22 @@ struct HomeView: View {
         }
     }
 
-    private func loadHomeData() async {
+    private func loadHomeData(force: Bool = false) async {
+        if !force {
+            if !dataStore.subjects.isEmpty {
+                subjects = dataStore.subjects
+            }
+            if let cachedSummary = dataStore.cachedSummary {
+                summary = cachedSummary
+            }
+        }
+
         isLoading = true
         errorMessage = nil
         do {
-            async let loadedSubjects = APIClient.shared.listSubjects()
-            async let loadedSummary = APIClient.shared.getMeSummary()
-            subjects = try await loadedSubjects
-            summary = try await loadedSummary
+            let homeData = try await dataStore.refreshHomeData(force: force)
+            subjects = homeData.subjects
+            summary = homeData.summary
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct MemoryAppApp: App {
     @StateObject private var session = AuthSessionStore()
+    @StateObject private var dataStore = AppDataStore()
 
     init() {
         // NavBar 与 TabBar 的外观在此统一注入（Components.swift）。
@@ -22,8 +23,22 @@ struct MemoryAppApp: App {
                 }
             }
             .environmentObject(session)
+            .environmentObject(dataStore)
             .task {
                 await session.restoreSession()
+            }
+            .onChange(of: session.user?.id) { _, userID in
+                dataStore.configure(userID: userID)
+                if session.isAuthenticated {
+                    Task {
+                        await dataStore.warmAfterSignIn()
+                    }
+                }
+            }
+            .onChange(of: session.isAuthenticated) { _, isAuthenticated in
+                if !isAuthenticated {
+                    dataStore.clear()
+                }
             }
         }
     }
@@ -35,6 +50,7 @@ private enum AppTab: Hashable {
 
 struct AppShellView: View {
     @EnvironmentObject private var session: AuthSessionStore
+    @EnvironmentObject private var dataStore: AppDataStore
     @State private var selection: AppTab = .home
 
     var body: some View {
@@ -69,6 +85,10 @@ struct AppShellView: View {
         .sheet(isPresented: $session.shouldOfferPasswordSetup) {
             SetPasswordView(isOnboarding: true)
                 .environmentObject(session)
+        }
+        .task {
+            dataStore.configure(userID: session.user?.id)
+            await dataStore.warmAfterSignIn()
         }
     }
 }

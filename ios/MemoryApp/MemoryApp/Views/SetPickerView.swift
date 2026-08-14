@@ -6,6 +6,7 @@ struct SetPickerView: View {
     let onStart: (StudySessionConfig) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var dataStore: AppDataStore
     @State private var sets: [AppSet] = []
     @State private var selection: SetSelectionState = .all
     @State private var isLoading = false
@@ -138,8 +139,9 @@ struct SetPickerView: View {
         isLoading = true
         errorMessage = nil
         do {
-            sets = try await APIClient.shared.listSets(subjectID: subject.id)
+            sets = try await dataStore.refreshSets(subjectID: subject.id, force: false)
             selection = .all
+            await preloadSelectedDueCards()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -174,6 +176,17 @@ struct SetPickerView: View {
         } else {
             selection = .specific(ids)
         }
+
+        Task {
+            await preloadSelectedDueCards()
+        }
+    }
+
+    private func preloadSelectedDueCards() async {
+        guard canStart else {
+            return
+        }
+        await dataStore.preloadDueCards(subjectID: subject.id, setIDs: selectedSetIDs)
     }
 }
 

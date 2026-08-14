@@ -5,6 +5,7 @@ struct ReviewSessionView: View {
     let subject: AppSubject
     let setIDs: [String]
     let onClose: () -> Void
+    @EnvironmentObject private var dataStore: AppDataStore
     @State private var cards: [ReviewCard] = []
     @State private var reviewStep = 0
     @State private var initialCardCount = 0
@@ -69,18 +70,29 @@ struct ReviewSessionView: View {
     }
 
     private func loadCards() async {
+        if let cachedCards = dataStore.cachedDueCards(subjectID: subject.id, setIDs: setIDs) {
+            applyLoadedCards(cachedCards)
+            await loadGradePreviews()
+            return
+        }
+
         isLoading = true
         errorMessage = nil
         do {
-            cards = try await APIClient.shared.listDueCards(subjectID: subject.id, setIDs: setIDs)
-            reviewStep = 0
-            initialCardCount = cards.count
-            completedCount = 0
+            let loadedCards = try await dataStore.refreshDueCards(subjectID: subject.id, setIDs: setIDs, force: false)
+            applyLoadedCards(loadedCards)
             await loadGradePreviews()
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func applyLoadedCards(_ loadedCards: [ReviewCard]) {
+        cards = loadedCards
+        reviewStep = 0
+        initialCardCount = loadedCards.count
+        completedCount = 0
     }
 
     private func loadGradePreviews() async {
@@ -89,7 +101,11 @@ struct ReviewSessionView: View {
             return
         }
         do {
-            gradePreviews = try await APIClient.shared.getReviewPreviews(cardID: currentCard.id)
+            if let cachedPreviews = dataStore.cachedReviewPreviews(cardID: currentCard.id) {
+                gradePreviews = cachedPreviews
+            } else {
+                gradePreviews = try await dataStore.refreshReviewPreviews(cardID: currentCard.id, force: false)
+            }
         } catch {
             gradePreviews = []
             errorMessage = error.localizedDescription
@@ -103,6 +119,10 @@ struct ReviewSessionView: View {
         errorMessage = nil
         do {
             _ = try await APIClient.shared.submitReview(card: currentCard, mode: mode, rating: rating, revealedCount: revealedCount)
+            dataStore.invalidateAfterReviewMutation(cardID: currentCard.id)
+            Task {
+                await dataStore.warmHome()
+            }
             removeCurrentCardFromQueue()
         } catch {
             errorMessage = error.localizedDescription
@@ -116,6 +136,10 @@ struct ReviewSessionView: View {
         errorMessage = nil
         do {
             try await APIClient.shared.deleteCard(currentCard)
+            dataStore.invalidateAfterCardMutation(cardID: currentCard.id)
+            Task {
+                await dataStore.warmAfterSignIn()
+            }
             removeCurrentCardFromQueue()
         } catch {
             errorMessage = error.localizedDescription
@@ -129,6 +153,10 @@ struct ReviewSessionView: View {
         errorMessage = nil
         do {
             try await APIClient.shared.markCardMastered(currentCard)
+            dataStore.invalidateAfterReviewMutation(cardID: currentCard.id)
+            Task {
+                await dataStore.warmHome()
+            }
             removeCurrentCardFromQueue()
         } catch {
             errorMessage = error.localizedDescription

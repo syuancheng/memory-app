@@ -3,6 +3,8 @@ import SwiftUI
 struct MeView: View {
     var onClose: (() -> Void)?
 
+    @EnvironmentObject private var dataStore: AppDataStore
+
     @State private var summary: MeSummary?
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -61,6 +63,11 @@ struct MeView: View {
         }
         .task {
             await loadSummary()
+        }
+        .onReceive(dataStore.$summary) { loadedSummary in
+            if let loadedSummary {
+                summary = loadedSummary
+            }
         }
     }
 
@@ -208,10 +215,14 @@ struct MeView: View {
     }
 
     private func loadSummary() async {
+        if let cachedSummary = dataStore.cachedSummary {
+            summary = cachedSummary
+        }
+
         isLoading = true
         errorMessage = nil
         do {
-            summary = try await APIClient.shared.getMeSummary()
+            summary = try await dataStore.refreshSummary(force: false)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1023,6 +1034,7 @@ private struct AccountEditPage: View {
     let kind: AccountEditKind
 
     @EnvironmentObject private var session: AuthSessionStore
+    @EnvironmentObject private var dataStore: AppDataStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var value: String
@@ -1079,6 +1091,10 @@ private struct AccountEditPage: View {
         errorMessage = nil
         do {
             try await session.updateDisplayName(trimmed)
+            dataStore.invalidateSummary()
+            Task {
+                _ = try? await dataStore.refreshSummary(force: true)
+            }
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
