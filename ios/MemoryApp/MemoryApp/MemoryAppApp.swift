@@ -4,6 +4,7 @@ import SwiftUI
 struct MemoryAppApp: App {
     @StateObject private var session = AuthSessionStore()
     @StateObject private var dataStore = AppDataStore()
+    @AppStorage("appLanguage") private var appLanguage = AppLanguage.english.rawValue
 
     init() {
         // NavBar 与 TabBar 的外观在此统一注入（Components.swift）。
@@ -24,6 +25,7 @@ struct MemoryAppApp: App {
             }
             .environmentObject(session)
             .environmentObject(dataStore)
+            .environment(\.locale, AppLanguage.normalized(appLanguage).locale)
             .task {
                 await session.restoreSession()
             }
@@ -105,18 +107,27 @@ struct AppShellView: View {
 }
 
 private struct LaunchLoadingView: View {
+    @State private var isAnimating = false
+
     var body: some View {
         ZStack {
             AppColor.surfaceBase
                 .ignoresSafeArea()
 
-            VStack(spacing: AppSpace.md) {
-                Text("Cardly")
-                    .appText(AppType.display)
-
-                ProgressView()
-                    .tint(AppColor.primary)
-            }
+            Image("AppLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 124, height: 124)
+                .scaleEffect(isAnimating ? 1.04 : 0.98)
+                .opacity(isAnimating ? 1 : 0.84)
+                .animation(
+                    .easeInOut(duration: 1.05).repeatForever(autoreverses: true),
+                    value: isAnimating
+                )
+                .accessibilityLabel("Cardly")
+        }
+        .onAppear {
+            isAnimating = true
         }
     }
 }

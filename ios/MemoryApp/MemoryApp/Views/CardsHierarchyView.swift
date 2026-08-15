@@ -645,7 +645,7 @@ private struct CardsManagementPage<Content: View, Trailing: View>: View {
             .toolbar(.hidden, for: .navigationBar)
         } else {
             AppScreen {
-                Text(subtitle)
+                Text(LocalizedStringKey(subtitle))
                     .appText(AppType.body, color: AppColor.textTertiary)
                     .lineLimit(2)
 
@@ -691,7 +691,7 @@ private struct CardsSearchField: View {
 
             ZStack(alignment: .leading) {
                 if text.isEmpty {
-                    Text(prompt)
+                    Text(LocalizedStringKey(prompt))
                         .appText(AppType.body, color: AppColor.textPlaceholder)
                         .allowsHitTesting(false)
                 }
@@ -1466,7 +1466,7 @@ private struct CardsEditPageScaffold<Content: View>: View {
         // 又因为是 present 而非 push，dismiss 用 .close（xmark）而不是返回箭头。
         NavigationStack {
             AppScreen {
-                Text(subtitle)
+                Text(LocalizedStringKey(subtitle))
                     .appText(AppType.body, color: AppColor.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -1514,7 +1514,7 @@ private struct CardsFieldLabel: View {
     }
 
     var body: some View {
-        Text(title)
+        Text(LocalizedStringKey(title))
             .appText(AppType.label, color: AppColor.textTertiary)
     }
 }
@@ -1596,7 +1596,7 @@ private struct CardsDangerZone: View {
                 Text("Danger Zone")
                     .appText(AppType.label, color: AppColor.dangerText)
 
-                Text(message)
+                Text(LocalizedStringKey(message))
                     .appText(AppType.body, color: AppColor.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -1617,7 +1617,7 @@ private struct CardsFormError: View {
     let message: String
 
     var body: some View {
-        Text(message)
+        Text(LocalizedStringKey(message))
             .appText(AppType.label, color: AppColor.dangerText)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -163,7 +163,7 @@ struct AppNavBarModifier<Trailing: View>: ViewModifier {
             .toolbarBackground(AppColor.surfaceBase, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text(title)
+                    Text(LocalizedStringKey(title))
                         .appText(AppType.headline)
                         .lineLimit(1)
                 }
@@ -178,7 +178,7 @@ struct AppNavBarModifier<Trailing: View>: ViewModifier {
                                 .frame(width: AppLayout.minHitTarget, height: AppLayout.minHitTarget)
                                 .contentShape(Rectangle())
                         }
-                        .accessibilityLabel("Close")
+                        .accessibilityLabel(Text("Close"))
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -214,11 +214,11 @@ struct AppLargeHeader<Trailing: View>: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AppSpace.lg) {
             VStack(alignment: .leading, spacing: AppSpace.xs) {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .appText(AppType.display)
 
                 if let subtitle {
-                    Text(subtitle)
+                    Text(LocalizedStringKey(subtitle))
                         .appText(AppType.body, color: AppColor.textTertiary)
                 }
             }
@@ -380,7 +380,7 @@ struct AppButton: View {
                     Image(systemName: icon)
                         .font(AppIcon.font(size.iconSize))
                 }
-                Text(title)
+                Text(LocalizedStringKey(title))
             }
         }
         .buttonStyle(AppButtonStyle(
@@ -388,7 +388,7 @@ struct AppButton: View {
             fullWidth: fullWidth, isEnabled: isEnabled, isLoading: isLoading
         ))
         .disabled(!isEnabled || isLoading)
-        .accessibilityLabel(title)
+        .accessibilityLabel(Text(LocalizedStringKey(title)))
         // 禁用不改变可聚焦性，但要让 VoiceOver 播报状态
         .accessibilityValue(isLoading ? Text("Loading") : Text(""))
     }
@@ -561,12 +561,12 @@ struct AppListRow: View {
             }
 
             VStack(alignment: .leading, spacing: AppSpace.xs / 2) {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .appText(AppType.headline, color: titleColor)
                     .lineLimit(1)
 
                 if let subtitle {
-                    Text(subtitle)
+                    Text(LocalizedStringKey(subtitle))
                         .appText(AppType.body, color: AppColor.textTertiary)
                         .lineLimit(2)
                 }
@@ -590,12 +590,12 @@ struct AppListRow: View {
         case .disclosure:
             chevron
         case .value(let text):
-            Text(text)
+            Text(LocalizedStringKey(text))
                 .appText(AppType.body, color: AppColor.textTertiary)
                 .lineLimit(1)
         case .valueWithDisclosure(let text):
             HStack(spacing: AppSpace.xs) {
-                Text(text)
+                Text(LocalizedStringKey(text))
                     .appText(AppType.body, color: AppColor.textTertiary)
                     .lineLimit(1)
                 chevron
@@ -678,12 +678,12 @@ struct AppTextField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpace.sm) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .appText(AppType.label, color: AppColor.textTertiary)
 
             ZStack(alignment: .leading) {
                 if text.isEmpty {
-                    Text(placeholder)
+                    Text(LocalizedStringKey(placeholder))
                         .appText(AppType.body, color: AppColor.textPlaceholder)
                         .allowsHitTesting(false)
                 }
@@ -707,7 +707,7 @@ struct AppTextField: View {
             .animation(AppMotion.instant, value: isFocused)
 
             if let message = errorText ?? helper {
-                Text(message)
+                Text(LocalizedStringKey(message))
                     .appText(AppType.label, color: errorText != nil ? AppColor.dangerText : AppColor.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -757,7 +757,7 @@ struct AppSecureField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpace.sm) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .appText(AppType.label, color: AppColor.textTertiary)
 
             HStack(spacing: AppSpace.sm) {
@@ -787,7 +787,7 @@ struct AppSecureField: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(isRevealed ? "Hide password" : "Show password")
+                .accessibilityLabel(Text(isRevealed ? "Hide password" : "Show password"))
                 // 抵消热区外扩，让图标视觉上贴住右内边距
                 .padding(.trailing, -AppSpace.md)
             }
@@ -801,7 +801,7 @@ struct AppSecureField: View {
             .animation(AppMotion.instant, value: isFocused)
 
             if let message = errorText ?? helper {
-                Text(message)
+                Text(LocalizedStringKey(message))
                     .appText(AppType.label, color: errorText != nil ? AppColor.dangerText : AppColor.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -835,12 +835,12 @@ struct AppTextArea: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpace.sm) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .appText(AppType.label, color: AppColor.textTertiary)
 
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
-                    Text(placeholder)
+                    Text(LocalizedStringKey(placeholder))
                         .appText(AppType.body, color: AppColor.textPlaceholder)
                         .padding(.horizontal, AppSpace.lg)
                         .padding(.vertical, AppSpace.md + AppSpace.xs)
@@ -867,7 +867,7 @@ struct AppTextArea: View {
             .animation(AppMotion.instant, value: isFocused)
 
             if let helper {
-                Text(helper)
+                Text(LocalizedStringKey(helper))
                     .appText(AppType.label, color: AppColor.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -891,14 +891,14 @@ struct AppSectionHeader: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: AppSpace.sm) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .appText(AppType.label, color: AppColor.textTertiary)
 
             Spacer(minLength: AppSpace.sm)
 
             if let actionTitle, let action {
                 Button(action: action) {
-                    Text(actionTitle)
+                    Text(LocalizedStringKey(actionTitle))
                         .appText(AppType.label, color: AppColor.primary)
                         .padding(.horizontal, AppSpace.sm)
                         .frame(minHeight: AppLayout.minHitTarget)
@@ -950,13 +950,13 @@ struct AppEmptyState: View {
                     .padding(.bottom, AppSpace.xs)
             }
 
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .appText(density == .standard ? AppType.headline : AppType.label,
                          color: density == .standard ? AppColor.textPrimary : AppColor.textSecondary)
                 .multilineTextAlignment(.center)
 
             if let message {
-                Text(message)
+                Text(LocalizedStringKey(message))
                     .appText(density == .standard ? AppType.body : AppType.label,
                              color: AppColor.textTertiary)
                     .multilineTextAlignment(.center)

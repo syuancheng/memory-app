@@ -44,14 +44,12 @@ struct AuthView: View {
                 VStack(alignment: .leading, spacing: AppSpace.xxxl) {
                     Spacer(minLength: AppSpace.xxl)
 
-                    VStack(alignment: .leading, spacing: AppSpace.sm) {
-                        // 登录页是唯一没有其他 display 级元素的屏，品牌名占用 display。
-                        Text("Cardly")
-                            .appText(AppType.display)
-
-                        Text("AI flashcards for active recall")
-                            .appText(AppType.body, color: AppColor.textTertiary)
-                    }
+                    Image("AppLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 120, height: 120)
+                        .frame(maxWidth: .infinity)
+                        .accessibilityLabel("Cardly")
 
                     AppCard(padding: AppSpace.xl) {
                         VStack(alignment: .leading, spacing: AppSpace.lg) {

@@ -655,9 +655,9 @@ private struct MCPAccessPage: View {
 
     private func oauthSettingRow(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: AppSpace.xs) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .appText(AppType.label, color: AppColor.textTertiary)
-            Text(value)
+            Text(LocalizedStringKey(value))
                 .appText(AppType.body)
                 .monospaced()
                 .textSelection(.enabled)
@@ -902,6 +902,7 @@ private struct NotificationsPage: View {
 }
 
 private struct AppearancePage: View {
+    @AppStorage("appLanguage") private var appLanguage = AppLanguage.english.rawValue
     @AppStorage("meFontSizeChoice") private var fontSizeChoice = FontSizeChoice.medium.rawValue
     @AppStorage("reviewEnglishVoice") private var englishVoice = ReviewEnglishVoice.american.rawValue
 
@@ -911,12 +912,24 @@ private struct AppearancePage: View {
                 AppCard {
                     VStack(alignment: .leading, spacing: AppSpace.lg) {
                         VStack(alignment: .leading, spacing: AppSpace.md) {
+                            Text("Language")
+                                .appText(AppType.label, color: AppColor.textTertiary)
+
+                            Picker("Language", selection: $appLanguage) {
+                                ForEach(AppLanguage.allCases) { language in
+                                    Text(language.title).tag(language.rawValue)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                        }
+
+                        VStack(alignment: .leading, spacing: AppSpace.md) {
                             Text("Font Size")
                                 .appText(AppType.label, color: AppColor.textTertiary)
 
                             Picker("Font Size", selection: $fontSizeChoice) {
                                 ForEach(FontSizeChoice.allCases) { choice in
-                                    Text(choice.title).tag(choice.rawValue)
+                                    Text(LocalizedStringKey(choice.title)).tag(choice.rawValue)
                                 }
                             }
                             .pickerStyle(.segmented)
@@ -928,7 +941,7 @@ private struct AppearancePage: View {
 
                             Picker("English Voice", selection: $englishVoice) {
                                 ForEach(ReviewEnglishVoice.allCases) { voice in
-                                    Text(voice.title).tag(voice.rawValue)
+                                    Text(LocalizedStringKey(voice.title)).tag(voice.rawValue)
                                 }
                             }
                             .pickerStyle(.segmented)
@@ -1137,7 +1150,7 @@ private struct MePageScaffold<Content: View>: View {
             content()
         }
         // 样式 A：可返回的屏一律用原生导航栏（inline 标题 + 系统返回）。
-        .navigationTitle(title)
+        .navigationTitle(LocalizedStringKey(title))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
     }

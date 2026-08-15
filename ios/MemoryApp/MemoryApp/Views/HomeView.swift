@@ -59,7 +59,7 @@ struct HomeView: View {
     }
 
     private var homeHeader: some View {
-        AppLargeHeader(title: "Today", subtitle: "AI flashcards for active recall") {
+        AppLargeHeader(title: "Today", subtitle: "天下难事，必作于易；天下大事，必作于细。") {
             // badge 恒显，与改造前行为一致（尚无未读态数据源，不在本次视觉重构范围内）
             AppIconButton(
                 icon: "bell",
@@ -736,10 +736,10 @@ private struct FeatureRow: View {
                 .background(AppColor.iconContainerBase, in: AppRadius.shape(AppRadius.sm))
 
             VStack(alignment: .leading, spacing: AppSpace.xs / 2) {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .appText(AppType.headline)
 
-                Text(subtitle)
+                Text(LocalizedStringKey(subtitle))
                     .appText(AppType.body, color: AppColor.textTertiary)
                     .lineLimit(2)
             }
