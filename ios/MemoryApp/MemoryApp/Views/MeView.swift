@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 struct MeView: View {
     var onClose: (() -> Void)?
@@ -872,18 +873,178 @@ private struct ConnectedAccountsPage: View {
 }
 
 private struct LearningPreferencesPage: View {
+    @State private var preferences = LearningPreferences(
+        limitMode: .newPlusReview,
+        newCardsPerDay: 10,
+        totalCardsPerDay: 30,
+        dailyReminderEnabled: false,
+        dailyReminderTime: "20:00",
+        defaultReviewMode: "Review",
+        defaultCardDirection: "Chinese -> English"
+    )
+    @State private var reminderDate = Calendar.current.date(from: DateComponents(hour: 20, minute: 0)) ?? Date()
+    @State private var isLoading = false
+    @State private var isSaving = false
+    @State private var statusMessage: String?
+
     var body: some View {
         MePageScaffold(title: "Learning Preferences") {
-            MeGroupedSection {
-                MeValueRow(title: "Default Review Mode", value: "Review")
-                MeSeparator()
-                MeValueRow(title: "Daily Goal", value: "20 cards")
-                MeSeparator()
-                MeValueRow(title: "New Cards Per Day", value: "10")
-                MeSeparator()
-                MeValueRow(title: "Default Card Direction", value: "Chinese -> English")
+            VStack(alignment: .leading, spacing: AppSpace.lg) {
+                MeGroupedSection(title: "Daily Plan") {
+                    VStack(alignment: .leading, spacing: AppSpace.md) {
+                        Picker("Daily limit mode", selection: $preferences.limitMode) {
+                            ForEach(DailyLimitMode.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        if preferences.limitMode == .newPlusReview {
+                            Stepper(value: $preferences.newCardsPerDay, in: 0...100) {
+                                MeValueRow(title: "New Cards Per Day", value: "\(preferences.newCardsPerDay)")
+                            }
+                        } else {
+                            Stepper(value: $preferences.totalCardsPerDay, in: 1...300) {
+                                MeValueRow(title: "Total Cards Per Day", value: "\(preferences.totalCardsPerDay)")
+                            }
+                        }
+                    }
+                    .padding(.horizontal, AppSpace.md)
+                    .padding(.vertical, AppSpace.md)
+                }
+
+                MeGroupedSection(title: "Defaults") {
+                    MeValueRow(title: "Default Review Mode", value: preferences.defaultReviewMode)
+                    MeSeparator()
+                    MeValueRow(title: "Default Card Direction", value: preferences.defaultCardDirection)
+                }
+
+                MeGroupedSection(title: "Reminder") {
+                    Toggle(isOn: $preferences.dailyReminderEnabled) {
+                        Text("Daily Reminder")
+                            .appText(AppType.body)
+                    }
+                    .padding(.horizontal, AppSpace.md)
+                    .frame(minHeight: 56)
+
+                    if preferences.dailyReminderEnabled {
+                        MeSeparator()
+                        DatePicker(
+                            "Reminder Time",
+                            selection: $reminderDate,
+                            displayedComponents: .hourAndMinute
+                        )
+                        .padding(.horizontal, AppSpace.md)
+                        .frame(minHeight: 56)
+                    }
+                }
+
+                if let statusMessage {
+                    Text(statusMessage)
+                        .appText(AppType.label, color: AppColor.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                AppButton(
+                    title: isSaving ? "Saving..." : "Save",
+                    variant: .primary,
+                    size: .large,
+                    fullWidth: true
+                ) {
+                    Task {
+                        await savePreferences()
+                    }
+                }
+                .disabled(isLoading || isSaving)
             }
         }
+        .task {
+            await loadPreferences()
+        }
+        .onChange(of: reminderDate) { _, newValue in
+            preferences.dailyReminderTime = Self.clockTimeString(from: newValue)
+        }
+    }
+
+    private func loadPreferences() async {
+        guard !isLoading else { return }
+        isLoading = true
+        statusMessage = nil
+        do {
+            let loaded = try await APIClient.shared.getLearningPreferences()
+            preferences = loaded
+            reminderDate = Self.date(fromClockTime: loaded.dailyReminderTime)
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+        isLoading = false
+    }
+
+    private func savePreferences() async {
+        guard !isSaving else { return }
+        isSaving = true
+        statusMessage = nil
+        preferences.dailyReminderTime = Self.clockTimeString(from: reminderDate)
+        do {
+            let saved = try await APIClient.shared.updateLearningPreferences(
+                LearningPreferencesPayload(
+                    limitMode: preferences.limitMode.rawValue,
+                    newCardsPerDay: preferences.newCardsPerDay,
+                    totalCardsPerDay: preferences.totalCardsPerDay,
+                    dailyReminderEnabled: preferences.dailyReminderEnabled,
+                    dailyReminderTime: preferences.dailyReminderTime
+                )
+            )
+            preferences = saved
+            reminderDate = Self.date(fromClockTime: saved.dailyReminderTime)
+            await configureDailyReminder()
+            statusMessage = "Saved."
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+        isSaving = false
+    }
+
+    private func configureDailyReminder() async {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["cardly.daily-learning-reminder"])
+        guard preferences.dailyReminderEnabled else { return }
+
+        do {
+            let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
+            guard granted else {
+                statusMessage = "Notification permission was not granted."
+                return
+            }
+            let content = UNMutableNotificationContent()
+            content.title = "Cardly"
+            content.body = "Time for today's English cards."
+            content.sound = .default
+
+            let components = Calendar.current.dateComponents([.hour, .minute], from: reminderDate)
+            let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+            let request = UNNotificationRequest(
+                identifier: "cardly.daily-learning-reminder",
+                content: content,
+                trigger: trigger
+            )
+            try await center.add(request)
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    private static func date(fromClockTime value: String) -> Date {
+        let parts = value.split(separator: ":").compactMap { Int($0) }
+        var components = DateComponents()
+        components.hour = parts.first ?? 20
+        components.minute = parts.dropFirst().first ?? 0
+        return Calendar.current.date(from: components) ?? Date()
+    }
+
+    private static func clockTimeString(from date: Date) -> String {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return String(format: "%02d:%02d", components.hour ?? 20, components.minute ?? 0)
     }
 }
 

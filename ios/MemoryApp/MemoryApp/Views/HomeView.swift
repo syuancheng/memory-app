@@ -5,8 +5,9 @@ struct HomeView: View {
 
     @State private var subjects: [AppSubject] = []
     @State private var summary: MeSummary?
-    @State private var showingSubjects = false
+    @State private var activeStudyMode: StudyMode?
     @State private var showingMessages = false
+    @State private var showingLearnReviewReminder = false
     @State private var isLoading = false
     @State private var errorMessage: String?
 
@@ -16,6 +17,10 @@ struct HomeView: View {
 
     private var reviewedToday: Int {
         summary?.reviewedToday ?? 0
+    }
+
+    private var reviewReminderTitle: String {
+        dueCount == 1 ? "1 card waiting for review" : "\(dueCount) cards waiting for review"
     }
 
     var body: some View {
@@ -33,8 +38,8 @@ struct HomeView: View {
                 MessageCenterView()
             }
         }
-        .fullScreenCover(isPresented: $showingSubjects) {
-            SubjectPickerView(subjects: subjects, mode: .review)
+        .fullScreenCover(item: $activeStudyMode) { mode in
+            SubjectPickerView(subjects: subjects, mode: mode)
         }
         .task {
             await loadHomeData()
@@ -49,12 +54,25 @@ struct HomeView: View {
                 summary = loadedSummary
             }
         }
-        .onChange(of: showingSubjects) { _, isPresented in
-            if !isPresented {
+        .onChange(of: activeStudyMode) { _, mode in
+            if mode == nil {
                 Task {
                     await loadHomeData(force: true)
                 }
             }
+        }
+        .alert(reviewReminderTitle, isPresented: $showingLearnReviewReminder) {
+            Button("Review now") {
+                activeStudyMode = .review
+            }
+
+            Button("Still learn") {
+                activeStudyMode = .learn
+            }
+
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Reviewing due cards first keeps your memory schedule accurate.")
         }
     }
 
@@ -116,37 +134,47 @@ struct HomeView: View {
     }
 
     private var startLearningCard: some View {
-        Button {
-            showingSubjects = true
-        } label: {
-            AppCard(variant: .inverse, padding: AppSpace.xl) {
-                HStack(alignment: .bottom, spacing: AppSpace.lg) {
-                    VStack(alignment: .leading, spacing: AppSpace.sm) {
-                        Text("Start learning")
-                            .appText(AppType.label, color: AppColor.primaryOnInverse)
+        AppCard(variant: .inverse, padding: AppSpace.xl) {
+            VStack(alignment: .leading, spacing: AppSpace.lg) {
+                VStack(alignment: .leading, spacing: AppSpace.sm) {
+                    Text("Start learning")
+                        .appText(AppType.label, color: AppColor.primaryOnInverse)
 
-                        Text("Review your English cards")
-                            .appText(AppType.title2, color: AppColor.textOnInverse)
-                            .fixedSize(horizontal: false, vertical: true)
+                    Text("Choose today's path")
+                        .appText(AppType.title2, color: AppColor.textOnInverse)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                        Text("Default: due cards · short session · review mode")
-                            .appText(AppType.body, color: AppColor.textOnInverseSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, AppSpace.xs)
+                    Text("Review due cards or learn new English sentences.")
+                        .appText(AppType.body, color: AppColor.textOnInverseSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: AppSpace.md) {
+                    HomeStudyActionButton(
+                        title: "Review",
+                        subtitle: dueCount == 1 ? "1 card due" : "\(dueCount) cards due",
+                        icon: "arrow.clockwise",
+                        style: .filled
+                    ) {
+                        activeStudyMode = .review
                     }
 
-                    Spacer(minLength: AppSpace.sm)
-
-                    Image(systemName: "arrow.right")
-                        .font(AppIcon.font(AppLayout.iconMD))
-                        .foregroundStyle(AppColor.onButtonOnInverse)
-                        .frame(width: AppLayout.avatarMD, height: AppLayout.avatarMD)
-                        .background(AppColor.buttonOnInverse, in: Circle())
+                    HomeStudyActionButton(
+                        title: "Learn",
+                        subtitle: "New cards",
+                        icon: "plus",
+                        style: .light
+                    ) {
+                        if dueCount > 0 {
+                            showingLearnReviewReminder = true
+                        } else {
+                            activeStudyMode = .learn
+                        }
+                    }
                 }
             }
         }
-        .buttonStyle(AppPressableStyle())
-        .accessibilityLabel("Start learning: review your English cards")
+        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder
@@ -188,6 +216,113 @@ struct HomeView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+}
+
+private struct HomeStudyActionButton: View {
+    enum Style {
+        case filled
+        case light
+    }
+
+    let title: String
+    let subtitle: String
+    let icon: String
+    let style: Style
+    let action: () -> Void
+
+    private var foreground: Color {
+        switch style {
+        case .filled:
+            return AppColor.textOnInverse
+        case .light:
+            return AppColor.textPrimary
+        }
+    }
+
+    private var secondaryForeground: Color {
+        switch style {
+        case .filled:
+            return AppColor.textOnInverseSecondary
+        case .light:
+            return AppColor.textTertiary
+        }
+    }
+
+    private var background: Color {
+        switch style {
+        case .filled:
+            return AppColor.primary
+        case .light:
+            return AppColor.buttonOnInverse
+        }
+    }
+
+    private var iconForeground: Color {
+        switch style {
+        case .filled:
+            return AppColor.onButtonOnInverse
+        case .light:
+            return AppColor.primary
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: AppSpace.md) {
+                HStack {
+                    Image(systemName: icon)
+                        .font(AppIcon.font(AppLayout.iconSM))
+                        .foregroundStyle(iconForeground)
+                        .frame(width: AppLayout.buttonHeightSmall, height: AppLayout.buttonHeightSmall)
+                        .background(iconBackground, in: Circle())
+
+                    Spacer(minLength: AppSpace.sm)
+
+                    Image(systemName: "arrow.right")
+                        .font(AppIcon.font(AppLayout.iconSM))
+                        .foregroundStyle(secondaryForeground)
+                }
+
+                VStack(alignment: .leading, spacing: AppSpace.xs) {
+                    Text(title)
+                        .appText(AppType.headline, color: foreground)
+                        .lineLimit(1)
+
+                    Text(subtitle)
+                        .appText(AppType.caption, color: secondaryForeground)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                }
+            }
+            .padding(AppSpace.md)
+            .frame(maxWidth: .infinity, minHeight: 126, alignment: .leading)
+            .background(background, in: AppRadius.shape(AppRadius.lg))
+            .overlay {
+                AppRadius.shape(AppRadius.lg)
+                    .strokeBorder(borderColor, lineWidth: AppLayout.hairline)
+            }
+        }
+        .buttonStyle(AppPressableStyle())
+        .accessibilityLabel("\(title), \(subtitle)")
+    }
+
+    private var iconBackground: Color {
+        switch style {
+        case .filled:
+            return AppColor.buttonOnInverse.opacity(0.16)
+        case .light:
+            return AppColor.primarySoft
+        }
+    }
+
+    private var borderColor: Color {
+        switch style {
+        case .filled:
+            return AppColor.buttonOnInverse.opacity(0.14)
+        case .light:
+            return AppColor.border
+        }
     }
 }
 

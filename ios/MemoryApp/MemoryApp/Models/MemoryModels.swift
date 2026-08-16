@@ -124,6 +124,7 @@ struct GrammarPhrasePayload: Encodable, Hashable {
 struct ReviewState: Codable {
     let cardID: String
     let status: String
+    let learningStep: Int
     let ease: Double
     let intervalDays: Int
     let dueAt: String
@@ -133,11 +134,100 @@ struct ReviewState: Codable {
     enum CodingKeys: String, CodingKey {
         case cardID = "card_id"
         case status
+        case learningStep = "learning_step"
         case ease
         case intervalDays = "interval_days"
         case dueAt = "due_at"
         case reviewCount = "review_count"
         case lapseCount = "lapse_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        cardID = try c.decode(String.self, forKey: .cardID)
+        status = try c.decode(String.self, forKey: .status)
+        learningStep = try c.decodeIfPresent(Int.self, forKey: .learningStep) ?? 0
+        ease = try c.decode(Double.self, forKey: .ease)
+        intervalDays = try c.decode(Int.self, forKey: .intervalDays)
+        dueAt = try c.decode(String.self, forKey: .dueAt)
+        reviewCount = try c.decode(Int.self, forKey: .reviewCount)
+        lapseCount = try c.decode(Int.self, forKey: .lapseCount)
+    }
+}
+
+enum DailyLimitMode: String, CaseIterable, Codable, Identifiable {
+    case newPlusReview = "new_plus_review"
+    case fixedTotal = "fixed_total"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .newPlusReview:
+            return "New + Review"
+        case .fixedTotal:
+            return "Fixed Total"
+        }
+    }
+}
+
+struct LearningPreferences: Codable, Hashable {
+    var limitMode: DailyLimitMode
+    var newCardsPerDay: Int
+    var totalCardsPerDay: Int
+    var dailyReminderEnabled: Bool
+    var dailyReminderTime: String
+    let defaultReviewMode: String
+    let defaultCardDirection: String
+
+    enum CodingKeys: String, CodingKey {
+        case limitMode = "limit_mode"
+        case newCardsPerDay = "new_cards_per_day"
+        case totalCardsPerDay = "total_cards_per_day"
+        case dailyReminderEnabled = "daily_reminder_enabled"
+        case dailyReminderTime = "daily_reminder_time"
+        case defaultReviewMode = "default_review_mode"
+        case defaultCardDirection = "default_card_direction"
+    }
+}
+
+struct LearningPreferencesPayload: Encodable {
+    let limitMode: String
+    let newCardsPerDay: Int
+    let totalCardsPerDay: Int
+    let dailyReminderEnabled: Bool
+    let dailyReminderTime: String
+
+    enum CodingKeys: String, CodingKey {
+        case limitMode = "limit_mode"
+        case newCardsPerDay = "new_cards_per_day"
+        case totalCardsPerDay = "total_cards_per_day"
+        case dailyReminderEnabled = "daily_reminder_enabled"
+        case dailyReminderTime = "daily_reminder_time"
+    }
+}
+
+struct ReviewSessionPayload: Codable, Hashable {
+    let id: String
+    let date: String
+    let initialTotalCount: Int
+    let remainingCount: Int
+    let completedCount: Int
+    let leechedCount: Int
+    let isCheckInCompleted: Bool
+    let cards: [ReviewCard]
+    let nextAvailableAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case date
+        case initialTotalCount = "initial_total_count"
+        case remainingCount = "remaining_count"
+        case completedCount = "completed_count"
+        case leechedCount = "leeched_count"
+        case isCheckInCompleted = "is_check_in_completed"
+        case cards
+        case nextAvailableAt = "next_available_at"
     }
 }
 

@@ -49,6 +49,7 @@ type Card struct {
 type ReviewState struct {
 	CardID         string     `json:"card_id"`
 	Status         string     `json:"status"`
+	LearningStep   int        `json:"learning_step"`
 	Ease           float64    `json:"ease"`
 	IntervalDays   int        `json:"interval_days"`
 	DueAt          time.Time  `json:"due_at"`

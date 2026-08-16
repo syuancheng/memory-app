@@ -34,6 +34,7 @@ type cardRequest struct {
 
 type reviewResultRequest struct {
 	CardID              string `json:"card_id"`
+	SessionID           string `json:"session_id"`
 	ClientReviewID      string `json:"client_review_id"`
 	Mode                string `json:"mode"`
 	Rating              string `json:"rating"`
@@ -745,17 +746,22 @@ func (s *Server) submitReviewResult(w http.ResponseWriter, r *http.Request) {
 	_, err = tx.Exec(r.Context(), `
 		UPDATE review_states
 		SET status = $2,
-		    ease = $3,
-		    interval_days = $4,
-		    due_at = $5,
-		    review_count = $6,
-		    lapse_count = $7,
-		    last_reviewed_at = $8,
-		    mastered_at = $9
+		    learning_step = $3,
+		    ease = $4,
+		    interval_days = $5,
+		    due_at = $6,
+		    review_count = $7,
+		    lapse_count = $8,
+		    last_reviewed_at = $9,
+		    mastered_at = $10
 		WHERE card_id = $1
-	`, next.CardID, next.Status, next.Ease, next.IntervalDays, next.DueAt, next.ReviewCount, next.LapseCount, next.LastReviewedAt, next.MasteredAt)
+	`, next.CardID, next.Status, next.LearningStep, next.Ease, next.IntervalDays, next.DueAt, next.ReviewCount, next.LapseCount, next.LastReviewedAt, next.MasteredAt)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := updateDailySessionProgress(r.Context(), tx, userID, req.SessionID, req.CardID, req.Rating, state, next); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
@@ -768,7 +774,7 @@ func (s *Server) submitReviewResult(w http.ResponseWriter, r *http.Request) {
 func loadReviewState(ctx context.Context, pool *pgxpool.Pool, userID string, cardID string) (model.ReviewState, error) {
 	var state model.ReviewState
 	err := pool.QueryRow(ctx, `
-		SELECT rs.card_id::text, rs.status, rs.ease::float8, rs.interval_days, rs.due_at,
+		SELECT rs.card_id::text, rs.status, rs.learning_step, rs.ease::float8, rs.interval_days, rs.due_at,
 		       rs.review_count, rs.lapse_count, rs.last_reviewed_at, rs.mastered_at
 		FROM review_states rs
 		JOIN cards c ON c.id = rs.card_id
@@ -776,6 +782,7 @@ func loadReviewState(ctx context.Context, pool *pgxpool.Pool, userID string, car
 	`, cardID, userID).Scan(
 		&state.CardID,
 		&state.Status,
+		&state.LearningStep,
 		&state.Ease,
 		&state.IntervalDays,
 		&state.DueAt,
@@ -790,7 +797,7 @@ func loadReviewState(ctx context.Context, pool *pgxpool.Pool, userID string, car
 func loadReviewStateForUpdate(ctx context.Context, tx pgx.Tx, userID string, cardID string) (model.ReviewState, error) {
 	var state model.ReviewState
 	err := tx.QueryRow(ctx, `
-		SELECT rs.card_id::text, rs.status, rs.ease::float8, rs.interval_days, rs.due_at,
+		SELECT rs.card_id::text, rs.status, rs.learning_step, rs.ease::float8, rs.interval_days, rs.due_at,
 		       rs.review_count, rs.lapse_count, rs.last_reviewed_at, rs.mastered_at
 		FROM review_states rs
 		JOIN cards c ON c.id = rs.card_id
@@ -799,6 +806,7 @@ func loadReviewStateForUpdate(ctx context.Context, tx pgx.Tx, userID string, car
 	`, cardID, userID).Scan(
 		&state.CardID,
 		&state.Status,
+		&state.LearningStep,
 		&state.Ease,
 		&state.IntervalDays,
 		&state.DueAt,
@@ -913,6 +921,7 @@ func upsertCard(ctx context.Context, pool *pgxpool.Pool, userID string, cardID s
 type cardFilters struct {
 	UserID    string
 	CardID    string
+	CardIDs   []string
 	SubjectID string
 	SetIDs    []string
 	Search    string
@@ -929,6 +938,15 @@ func loadCards(ctx context.Context, pool *pgxpool.Pool, filters cardFilters) ([]
 		conditions = append(conditions, fmt.Sprintf("c.id = $%d", argIndex))
 		args = append(args, filters.CardID)
 		argIndex++
+	}
+	if len(filters.CardIDs) > 0 {
+		placeholders := make([]string, 0, len(filters.CardIDs))
+		for _, cardID := range filters.CardIDs {
+			placeholders = append(placeholders, fmt.Sprintf("$%d", argIndex))
+			args = append(args, cardID)
+			argIndex++
+		}
+		conditions = append(conditions, fmt.Sprintf("c.id IN (%s)", strings.Join(placeholders, ",")))
 	}
 	if filters.SubjectID != "" {
 		conditions = append(conditions, fmt.Sprintf("st.subject_id = $%d", argIndex))

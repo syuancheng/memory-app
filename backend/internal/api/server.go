@@ -49,6 +49,8 @@ func NewServer(pool *pgxpool.Pool, authService *auth.Service) http.Handler {
 			r.Delete("/account", server.deleteAccount)
 
 			r.Get("/me/summary", server.getMeSummary)
+			r.Get("/learning/preferences", server.getLearningPreferences)
+			r.Patch("/learning/preferences", server.updateLearningPreferences)
 
 			// MCP 个人访问令牌：把 MCP 调用绑定到真实账号
 			r.Get("/mcp/tokens", server.listMCPTokens)
@@ -74,6 +76,7 @@ func NewServer(pool *pgxpool.Pool, authService *auth.Service) http.Handler {
 			r.Post("/cards/{cardID}/master", server.masterCard)
 
 			r.Get("/review/due", server.listDueCards)
+			r.Get("/review/session", server.getReviewSession)
 			r.Post("/review/result", server.submitReviewResult)
 		})
 	})

@@ -53,28 +53,59 @@ func Apply(state model.ReviewState, rating string, now time.Time) model.ReviewSt
 	next.ReviewCount++
 	next.LastReviewedAt = &now
 
+	if next.Ease <= 0 {
+		next.Ease = 2.3
+	}
+
+	isReview := state.Status == "review"
 	switch rating {
 	case GradeAgain:
 		next.Status = "learning"
+		next.LearningStep = 0
 		next.IntervalDays = 0
-		next.Ease = math.Max(1.3, state.Ease-0.2)
-		next.LapseCount++
+		if isReview {
+			next.IntervalDays = 1
+			next.Ease = math.Max(1.3, state.Ease-0.2)
+			next.LapseCount++
+		}
 		next.DueAt = now.Add(time.Minute)
 	case GradeHard:
-		next.Status = "learning"
-		next.IntervalDays = 0
-		next.Ease = math.Max(1.3, state.Ease-0.05)
-		next.DueAt = now.Add(6 * time.Minute)
+		if isReview {
+			interval := maxInt(1, int(math.Round(float64(maxInt(1, state.IntervalDays))*1.2)))
+			next.Status = "review"
+			next.LearningStep = 0
+			next.IntervalDays = interval
+			next.Ease = math.Max(1.3, next.Ease-0.15)
+			next.DueAt = now.AddDate(0, 0, interval)
+		} else {
+			next.Status = "learning"
+			next.IntervalDays = 0
+			next.DueAt = now.Add(6 * time.Minute)
+		}
 	case GradeGood:
-		next.Status = "review"
-		next.IntervalDays = maxInt(3, int(math.Round(float64(state.IntervalDays)*state.Ease)))
-		next.Ease = math.Min(2.8, state.Ease+0.05)
-		next.DueAt = now.AddDate(0, 0, next.IntervalDays)
+		if isReview {
+			interval := maxInt(1, int(math.Round(float64(maxInt(1, state.IntervalDays))*next.Ease)))
+			next.Status = "review"
+			next.LearningStep = 0
+			next.IntervalDays = interval
+			next.DueAt = now.AddDate(0, 0, interval)
+		} else if state.LearningStep <= 0 {
+			next.Status = "learning"
+			next.LearningStep = 1
+			next.IntervalDays = 0
+			next.DueAt = now.Add(10 * time.Minute)
+		} else {
+			next.Status = "review"
+			next.LearningStep = 0
+			next.IntervalDays = 1
+			next.DueAt = now.Add(24 * time.Hour)
+		}
 	case GradeEasy:
 		next.Status = "review"
+		next.LearningStep = 0
 		baseInterval := maxInt(1, state.IntervalDays)
-		next.IntervalDays = maxInt(4, int(math.Round(float64(baseInterval)*(state.Ease+1.0))))
-		next.Ease = math.Min(3.0, state.Ease+0.15)
+		next.IntervalDays = maxInt(4, int(math.Round(float64(baseInterval)*state.Ease*1.3)))
+		next.Ease = math.Min(3.0, next.Ease+0.15)
 		next.DueAt = now.AddDate(0, 0, next.IntervalDays)
 	default:
 		return state

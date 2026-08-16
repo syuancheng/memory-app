@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS cards (
 CREATE TABLE IF NOT EXISTS review_states (
   card_id UUID PRIMARY KEY REFERENCES cards(id),
   status TEXT NOT NULL DEFAULT 'new',
+  learning_step INTEGER NOT NULL DEFAULT 0,
   ease REAL NOT NULL DEFAULT 2.3,
   interval_days INTEGER NOT NULL DEFAULT 0,
   due_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -105,6 +106,42 @@ CREATE TABLE IF NOT EXISTS review_events (
 
 ALTER TABLE review_events
 ADD COLUMN IF NOT EXISTS client_review_id TEXT;
+
+ALTER TABLE review_states
+ADD COLUMN IF NOT EXISTS learning_step INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS learning_preferences (
+  user_id UUID PRIMARY KEY REFERENCES users(id),
+  limit_mode TEXT NOT NULL DEFAULT 'new_plus_review',
+  new_cards_per_day INTEGER NOT NULL DEFAULT 10,
+  total_cards_per_day INTEGER NOT NULL DEFAULT 30,
+  daily_reminder_enabled BOOLEAN NOT NULL DEFAULT false,
+  daily_reminder_time TEXT NOT NULL DEFAULT '20:00',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS daily_sessions (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id),
+  session_date DATE NOT NULL,
+  session_mode TEXT NOT NULL DEFAULT 'review',
+  scope_key TEXT NOT NULL DEFAULT '',
+  subject_id UUID,
+  set_ids JSONB NOT NULL DEFAULT '[]',
+  initial_total_count INTEGER NOT NULL DEFAULT 0,
+  active_queue_card_ids JSONB NOT NULL DEFAULT '[]',
+  completed_card_ids JSONB NOT NULL DEFAULT '[]',
+  leeched_card_ids JSONB NOT NULL DEFAULT '[]',
+  card_retry_counts JSONB NOT NULL DEFAULT '{}',
+  is_check_in_completed BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(user_id, session_date, scope_key)
+);
+
+ALTER TABLE daily_sessions
+ADD COLUMN IF NOT EXISTS session_mode TEXT NOT NULL DEFAULT 'review';
 
 CREATE TABLE IF NOT EXISTS auth_verification_codes (
   id UUID PRIMARY KEY,
@@ -188,6 +225,9 @@ CREATE INDEX IF NOT EXISTS idx_cards_user_set_active ON cards(user_id, set_id, c
 CREATE INDEX IF NOT EXISTS idx_cards_user_subject_active ON cards(user_id, subject_id, created_at DESC) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_review_states_due ON review_states(due_at) WHERE status NOT IN ('deleted', 'mastered');
 CREATE INDEX IF NOT EXISTS idx_review_states_active_due_card ON review_states(due_at, card_id) WHERE status NOT IN ('deleted', 'mastered');
+CREATE INDEX IF NOT EXISTS idx_learning_preferences_user ON learning_preferences(user_id);
+CREATE INDEX IF NOT EXISTS idx_daily_sessions_user_date ON daily_sessions(user_id, session_date DESC);
+CREATE INDEX IF NOT EXISTS idx_daily_sessions_user_scope_date ON daily_sessions(user_id, scope_key, session_date DESC);
 CREATE INDEX IF NOT EXISTS idx_review_events_user_created_at ON review_events(user_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_review_events_user_client_review_id
   ON review_events(user_id, client_review_id)

@@ -2,11 +2,13 @@ import SwiftUI
 
 enum StudyMode: String, Hashable {
     case review
+    case learn
     case test
 
     var title: String {
         switch self {
         case .review: return "Review"
+        case .learn: return "Learn"
         case .test: return "Test"
         }
     }
@@ -14,9 +16,23 @@ enum StudyMode: String, Hashable {
     var actionTitle: String {
         switch self {
         case .review: return "Review"
+        case .learn: return "Learn"
         case .test: return "Test"
         }
     }
+
+    var subjectPrompt: String {
+        switch self {
+        case .review, .test:
+            return "Choose a subject"
+        case .learn:
+            return "Choose what to learn"
+        }
+    }
+}
+
+extension StudyMode: Identifiable {
+    var id: String { rawValue }
 }
 
 struct StudySessionConfig: Hashable {
@@ -47,7 +63,7 @@ struct SubjectPickerView: View {
                 NavigationStack {
                     // 本屏由 .fullScreenCover 呈现 → dismiss 用 .close
                     StudySelectionPage(title: mode.title, dismissStyle: .close, onBack: dismiss.callAsFunction) {
-                        Text("Choose a subject")
+                        Text(mode.subjectPrompt)
                             .appText(AppType.title2)
 
                         LazyVStack(spacing: AppLayout.cardGap) {
@@ -57,8 +73,8 @@ struct SubjectPickerView: View {
                                 } label: {
                                     StudySelectionRow(
                                         title: subject.name,
-                                        subtitle: "\(subject.dueCount) due · \(subject.cardCount) cards",
-                                        count: subject.dueCount,
+                                        subtitle: mode == .learn ? "\(subject.cardCount) cards" : "\(subject.dueCount) due · \(subject.cardCount) cards",
+                                        count: mode == .learn ? subject.cardCount : subject.dueCount,
                                         isSelected: false
                                     )
                                 }

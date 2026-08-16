@@ -8,9 +8,11 @@ struct ReviewSessionView: View {
     @EnvironmentObject private var dataStore: AppDataStore
     @EnvironmentObject private var session: AuthSessionStore
     @State private var cards: [ReviewCard] = []
+    @State private var reviewSession: ReviewSessionPayload?
     @State private var reviewStep = 0
     @State private var initialCardCount = 0
     @State private var completedCount = 0
+    @State private var leechedCount = 0
     @State private var gradePreviews: [ReviewGradePreview] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -32,7 +34,7 @@ struct ReviewSessionView: View {
                 ReviewCardView(
                     mode: mode,
                     card: currentCard,
-                    progressText: "\(cards.count) left",
+                    progressText: "\(reviewSession?.remainingCount ?? cards.count) left",
                     gradePreviews: gradePreviews,
                     resetToken: reviewStep,
                     onClose: onClose,
@@ -41,6 +43,8 @@ struct ReviewSessionView: View {
                 ) { rating, revealedCount in
                     await submit(rating: rating, revealedCount: revealedCount)
                 }
+            } else if let reviewSession, reviewSession.remainingCount > 0, reviewSession.nextAvailableAt != nil {
+                waitingView()
             } else if initialCardCount > 0 {
                 completionView
             } else {
@@ -71,17 +75,11 @@ struct ReviewSessionView: View {
     }
 
     private func loadCards() async {
-        if let cachedCards = dataStore.cachedDueCards(subjectID: subject.id, setIDs: setIDs) {
-            applyLoadedCards(cachedCards)
-            await loadGradePreviews()
-            return
-        }
-
         isLoading = true
         errorMessage = nil
         do {
-            let loadedCards = try await dataStore.refreshDueCards(subjectID: subject.id, setIDs: setIDs, force: false)
-            applyLoadedCards(loadedCards)
+            let loadedSession = try await APIClient.shared.getReviewSession(subjectID: subject.id, setIDs: setIDs, mode: mode)
+            applyLoadedSession(loadedSession)
             await loadGradePreviews()
         } catch {
             errorMessage = error.localizedDescription
@@ -89,11 +87,13 @@ struct ReviewSessionView: View {
         isLoading = false
     }
 
-    private func applyLoadedCards(_ loadedCards: [ReviewCard]) {
-        cards = loadedCards
-        reviewStep = 0
-        initialCardCount = loadedCards.count
-        completedCount = 0
+    private func applyLoadedSession(_ loadedSession: ReviewSessionPayload) {
+        reviewSession = loadedSession
+        cards = loadedSession.cards
+        initialCardCount = loadedSession.initialTotalCount
+        completedCount = loadedSession.completedCount
+        leechedCount = loadedSession.leechedCount
+        reviewStep += 1
     }
 
     private func loadGradePreviews() async {
@@ -114,37 +114,43 @@ struct ReviewSessionView: View {
         preloadUpcomingGradePreview()
     }
 
-    private func submit(rating: Rating, revealedCount: Int) async {
+    private func submit(rating: Rating, revealedCount: Int) async -> Bool {
         guard let currentCard else {
-            return
+            return false
         }
         let submittedCard = currentCard
-        guard let userID = session.user?.id, !userID.isEmpty else {
+        guard session.user?.id?.isEmpty == false else {
             errorMessage = "Please sign in again."
-            return
+            return false
         }
-        let submission = PendingReviewSubmission(
-            id: UUID().uuidString,
-            cardID: submittedCard.id,
-            mode: mode.rawValue,
-            rating: rating,
-            revealedTokensCount: revealedCount,
-            totalTokensCount: submittedCard.answerTokens.count,
-            createdAt: Date()
-        )
+        guard let sessionID = reviewSession?.id else {
+            errorMessage = "Review session is not ready."
+            return false
+        }
+
         errorMessage = nil
-        PendingReviewStore.enqueue(submission, userID: userID)
-
-        removeCurrentCardFromQueue()
-
-        Task {
-            let didSync = await PendingReviewStore.submitWithRetry(submission, userID: userID)
-            if didSync {
-                dataStore.invalidateAfterReviewMutation(cardID: submittedCard.id)
+        do {
+            _ = try await APIClient.shared.submitReview(
+                card: submittedCard,
+                mode: mode,
+                rating: rating,
+                revealedCount: revealedCount,
+                sessionID: sessionID
+            )
+            dataStore.invalidateAfterReviewMutation(cardID: submittedCard.id)
+            let refreshedSession = try await APIClient.shared.getReviewSession(subjectID: subject.id, setIDs: setIDs, mode: mode)
+            applyLoadedSession(refreshedSession)
+            await loadGradePreviews()
+            Task {
                 await dataStore.warmHome()
-            } else {
-                errorMessage = "Review saved locally. It will sync when the connection is stable."
             }
+            if refreshedSession.isCheckInCompleted {
+                lastReviewSummary = "Completed \(refreshedSession.completedCount) cards"
+            }
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -159,7 +165,7 @@ struct ReviewSessionView: View {
             Task {
                 await dataStore.warmAfterSignIn()
             }
-            removeCurrentCardFromQueue()
+            await loadCards()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -176,28 +182,9 @@ struct ReviewSessionView: View {
             Task {
                 await dataStore.warmHome()
             }
-            removeCurrentCardFromQueue()
+            await loadCards()
         } catch {
             errorMessage = error.localizedDescription
-        }
-    }
-
-    private func removeCurrentCardFromQueue() {
-        let nextCompletedCount = completedCount + 1
-        let nextCard = cards.dropFirst().first
-        completedCount = nextCompletedCount
-        if !cards.isEmpty {
-            cards.removeFirst()
-        }
-        reviewStep += 1
-        if cards.isEmpty {
-            lastReviewSummary = "Completed \(nextCompletedCount) cards"
-            gradePreviews = []
-        } else {
-            gradePreviews = nextCard.flatMap { dataStore.cachedReviewPreviews(cardID: $0.id) } ?? []
-            Task {
-                await loadGradePreviews()
-            }
         }
     }
 
@@ -221,7 +208,7 @@ struct ReviewSessionView: View {
             Text("Done for now")
                 .appText(AppType.title1)
 
-            Text("Completed \(completedCount) of \(initialCardCount) cards.")
+            Text(completionMessage)
                 .appText(AppType.body, color: AppColor.textTertiary)
                 .multilineTextAlignment(.center)
 
@@ -232,6 +219,43 @@ struct ReviewSessionView: View {
                 fullWidth: true,
                 action: onClose
             )
+            .padding(.top, AppSpace.sm)
+        }
+        .padding(.horizontal, AppLayout.screenMargin)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var completionMessage: String {
+        if leechedCount > 0 {
+            return "Completed \(completedCount), paused \(leechedCount) hard cards."
+        }
+        return "Completed \(completedCount) of \(initialCardCount) cards."
+    }
+
+    private func waitingView() -> some View {
+        VStack(spacing: AppSpace.md) {
+            Image(systemName: "clock")
+                .font(AppIcon.font(AppSpace.huge))
+                .foregroundStyle(AppColor.primary)
+                .padding(.bottom, AppSpace.xs)
+
+            Text("Next card soon")
+                .appText(AppType.title1)
+
+            Text("A card is scheduled to come back shortly.")
+                .appText(AppType.body, color: AppColor.textTertiary)
+                .multilineTextAlignment(.center)
+
+            AppButton(
+                title: "Refresh",
+                variant: .secondary,
+                size: .large,
+                fullWidth: true
+            ) {
+                Task {
+                    await loadCards()
+                }
+            }
             .padding(.top, AppSpace.sm)
         }
         .padding(.horizontal, AppLayout.screenMargin)

@@ -36,7 +36,7 @@ struct ReviewCardView: View {
     let onClose: () -> Void
     let onDelete: () async -> Void
     let onMaster: () async -> Void
-    let onRate: (Rating, Int) async -> Void
+    let onRate: (Rating, Int) async -> Bool
 
     @State private var side: CardSide = .front
     @State private var revealedTokenIndexes: Set<Int> = []
@@ -443,7 +443,11 @@ struct ReviewCardView: View {
             isSubmitting = true
             isAdvancing = true
         }
-        await onRate(rating, revealedTokenIndexes.count)
+        let didSubmit = await onRate(rating, revealedTokenIndexes.count)
+        if !didSubmit {
+            isSubmitting = false
+            isAdvancing = false
+        }
     }
 
     private func revealAllTokens() {

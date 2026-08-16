@@ -25,28 +25,35 @@ struct SetPickerView: View {
         }
     }
 
-    private var selectedDueCount: Int {
+    private var selectedCardCount: Int {
         switch selection {
         case .all:
-            return subject.dueCount
+            return mode == .learn ? subject.cardCount : subject.dueCount
         case .specific(let ids):
             return sets
                 .filter { ids.contains($0.id) }
-                .reduce(0) { $0 + $1.dueCount }
+                .reduce(0) { $0 + (mode == .learn ? $1.cardCount : $1.dueCount) }
         }
     }
 
     private var canStart: Bool {
-        selectedDueCount > 0 && !selectedSetIDs.isEmpty
+        selectedCardCount > 0 && !selectedSetIDs.isEmpty
     }
 
     private var primaryTitle: String {
-        canStart ? "\(mode.actionTitle) \(selectedDueCount) cards" : "No cards due"
+        if canStart {
+            return "\(mode.actionTitle) \(selectedCardCount) cards"
+        }
+        return mode == .learn ? "No cards to learn" : "No cards due"
+    }
+
+    private var pickerTitle: String {
+        mode == .learn ? "Choose what to learn" : "Choose what to review"
     }
 
     var body: some View {
         StudySelectionPage(title: subject.name, onBack: dismiss.callAsFunction) {
-            Text("Choose what to review")
+            Text(pickerTitle)
                 .appText(AppType.title2)
 
             if isLoading {
@@ -64,8 +71,8 @@ struct SetPickerView: View {
                     } label: {
                         StudySelectionRow(
                             title: "All",
-                            subtitle: "\(subject.dueCount) due · \(subject.cardCount) cards",
-                            count: subject.dueCount,
+                            subtitle: mode == .learn ? "\(subject.cardCount) cards" : "\(subject.dueCount) due · \(subject.cardCount) cards",
+                            count: mode == .learn ? subject.cardCount : subject.dueCount,
                             isSelected: isAllSelected
                         )
                     }
@@ -77,8 +84,8 @@ struct SetPickerView: View {
                         } label: {
                             StudySelectionRow(
                                 title: set.name,
-                                subtitle: "\(set.dueCount) due · \(set.cardCount) cards",
-                                count: set.dueCount,
+                                subtitle: mode == .learn ? "\(set.cardCount) cards" : "\(set.dueCount) due · \(set.cardCount) cards",
+                                count: mode == .learn ? set.cardCount : set.dueCount,
                                 isSelected: isSetSelected(set)
                             )
                         }
@@ -183,7 +190,7 @@ struct SetPickerView: View {
     }
 
     private func preloadSelectedDueCards() async {
-        guard canStart else {
+        guard mode == .review, canStart else {
             return
         }
         await dataStore.preloadDueCards(subjectID: subject.id, setIDs: selectedSetIDs)

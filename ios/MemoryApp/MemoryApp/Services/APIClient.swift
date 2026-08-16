@@ -138,6 +138,14 @@ final class APIClient {
         try await request(path: "/me/summary")
     }
 
+    func getLearningPreferences() async throws -> LearningPreferences {
+        try await request(path: "/learning/preferences")
+    }
+
+    func updateLearningPreferences(_ preferences: LearningPreferencesPayload) async throws -> LearningPreferences {
+        try await request(path: "/learning/preferences", method: "PATCH", body: preferences)
+    }
+
     func listSets() async throws -> [AppSet] {
         try await request(path: "/sets")
     }
@@ -198,24 +206,41 @@ final class APIClient {
         return try await request(url: url)
     }
 
+    func getReviewSession(subjectID: String, setIDs: [String], mode: StudyMode = .review) async throws -> ReviewSessionPayload {
+        var components = URLComponents(url: baseURL.appendingPathComponent("review/session"), resolvingAgainstBaseURL: false)
+        let offsetMinutes = TimeZone.current.secondsFromGMT() / 60
+        components?.queryItems = [
+            URLQueryItem(name: "subject_id", value: subjectID),
+            URLQueryItem(name: "set_ids", value: setIDs.joined(separator: ",")),
+            URLQueryItem(name: "mode", value: mode.rawValue),
+            URLQueryItem(name: "tz_offset_minutes", value: String(offsetMinutes))
+        ]
+        guard let url = components?.url else {
+            throw APIError.badURL
+        }
+        return try await request(url: url)
+    }
+
     func getReviewPreviews(cardID: String) async throws -> [ReviewGradePreview] {
         try await request(path: "/cards/\(cardID)/review-preview")
     }
 
-    func submitReview(card: ReviewCard, mode: StudyMode = .review, rating: Rating, revealedCount: Int, clientReviewID: String = UUID().uuidString) async throws -> ReviewState {
+    func submitReview(card: ReviewCard, mode: StudyMode = .review, rating: Rating, revealedCount: Int, clientReviewID: String = UUID().uuidString, sessionID: String? = nil) async throws -> ReviewState {
         try await submitReview(
             cardID: card.id,
             mode: mode.rawValue,
             rating: rating,
             revealedCount: revealedCount,
             totalTokensCount: card.answerTokens.count,
-            clientReviewID: clientReviewID
+            clientReviewID: clientReviewID,
+            sessionID: sessionID
         )
     }
 
-    func submitReview(cardID: String, mode: String, rating: Rating, revealedCount: Int, totalTokensCount: Int, clientReviewID: String) async throws -> ReviewState {
+    func submitReview(cardID: String, mode: String, rating: Rating, revealedCount: Int, totalTokensCount: Int, clientReviewID: String, sessionID: String? = nil) async throws -> ReviewState {
         let payload = ReviewResultPayload(
             cardID: cardID,
+            sessionID: sessionID,
             clientReviewID: clientReviewID,
             mode: mode,
             rating: rating.rawValue,
@@ -324,6 +349,7 @@ private struct AppleSignInPayload: Encodable {
 
 private struct ReviewResultPayload: Encodable {
     let cardID: String
+    let sessionID: String?
     let clientReviewID: String
     let mode: String
     let rating: String
@@ -332,6 +358,7 @@ private struct ReviewResultPayload: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case cardID = "card_id"
+        case sessionID = "session_id"
         case clientReviewID = "client_review_id"
         case mode
         case rating
