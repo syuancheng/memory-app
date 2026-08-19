@@ -20,6 +20,7 @@ struct HomeView: View {
     @State private var errorMessage: String?
     @State private var headerHeight: CGFloat = 0
     @State private var quoteSentence: String?
+    @State private var learningPreferences: LearningPreferences?
 
     /// 黄金分割比例：按钮区顶部落在屏幕高度的 61.8% 处，比正中间更贴近单手热区。
     private let goldenRatio: CGFloat = 0.618
@@ -34,8 +35,32 @@ struct HomeView: View {
         summary?.newCount ?? 0
     }
 
+    /// 今天真正会出现在 Review session 里的卡数——new_plus_review 模式下复习不设上限，
+    /// fixed_total 模式下和新卡共享每日总量上限。跟后端 buildDailyQueue 的口径保持一致。
+    private var todayReviewCount: Int {
+        guard let prefs = learningPreferences, prefs.limitMode == .fixedTotal else {
+            return reviewDueCount
+        }
+        return min(reviewDueCount, prefs.totalCardsPerDay)
+    }
+
+    /// 今天真正会出现在 Learn session 里的新卡数——受「每日新卡上限」或
+    /// 「每日总量上限减去今天复习占用」限制，而不是账号里全部新卡的总数。
+    private var todayNewCardCount: Int {
+        guard let prefs = learningPreferences else {
+            return newCardCount
+        }
+        switch prefs.limitMode {
+        case .newPlusReview:
+            return min(newCardCount, prefs.newCardsPerDay)
+        case .fixedTotal:
+            let remaining = max(0, prefs.totalCardsPerDay - todayReviewCount)
+            return min(newCardCount, remaining)
+        }
+    }
+
     private var reviewReminderTitle: String {
-        reviewDueCount == 1 ? "1 card waiting for review" : "\(reviewDueCount) cards waiting for review"
+        todayReviewCount == 1 ? "1 card waiting for review" : "\(todayReviewCount) cards waiting for review"
     }
 
     private var todayTitle: String {
@@ -94,6 +119,9 @@ struct HomeView: View {
         .task {
             await loadQuoteSentence()
         }
+        .task {
+            await loadLearningPreferences()
+        }
         .onReceive(dataStore.$subjects) { loadedSubjects in
             if !loadedSubjects.isEmpty {
                 subjects = loadedSubjects
@@ -108,6 +136,7 @@ struct HomeView: View {
             if mode == nil {
                 Task {
                     await loadHomeData(force: true)
+                    await loadLearningPreferences()
                 }
             }
         }
@@ -165,7 +194,7 @@ struct HomeView: View {
         HStack(spacing: AppSpace.md) {
             HomeStudyActionButton(
                 title: "Review",
-                subtitle: reviewDueCount == 1 ? "1 card due" : "\(reviewDueCount) cards due",
+                subtitle: todayReviewCount == 1 ? "1 card due" : "\(todayReviewCount) cards due",
                 icon: "arrow.clockwise",
                 style: .filled
             ) {
@@ -174,11 +203,11 @@ struct HomeView: View {
 
             HomeStudyActionButton(
                 title: "Learn",
-                subtitle: newCardCount == 1 ? "1 new card" : "\(newCardCount) new cards",
+                subtitle: todayNewCardCount == 1 ? "1 new card" : "\(todayNewCardCount) new cards",
                 icon: "plus",
                 style: .light
             ) {
-                if reviewDueCount > 0 {
+                if todayReviewCount > 0 {
                     showingLearnReviewReminder = true
                 } else {
                     activeStudyMode = .learn
@@ -239,6 +268,10 @@ struct HomeView: View {
         } catch {
             quoteSentence = nil
         }
+    }
+
+    private func loadLearningPreferences() async {
+        learningPreferences = try? await APIClient.shared.getLearningPreferences()
     }
 }
 
