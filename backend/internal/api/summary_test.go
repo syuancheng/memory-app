@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -94,5 +95,61 @@ func TestMeSummarySplitsNewAndReviewDueCounts(t *testing.T) {
 	// seedUser 的卡(1，无 review_state) + 本测试新建 8 张 - 1 张软删 = 8
 	if summary.TotalCards != 8 {
 		t.Errorf("total_cards = %d, want 8", summary.TotalCards)
+	}
+}
+
+// TestNewLearnedTodayCountsOnlyGraduatedCards 验证 new_learned_today 的口径：
+// 一张新卡连续 3 次 Again 会被判 leech（今天先放一放），不算学完；
+// 另一张卡 Good 两次真正毕业（status 变成 review）才算 +1。
+func TestNewLearnedTodayCountsOnlyGraduatedCards(t *testing.T) {
+	ctx := context.Background()
+	handler, pool, svc := newTestEnv(t)
+	user := seedUser(t, ctx, pool, svc)
+
+	now := time.Now().UTC()
+	leechCardID := seedCardWithStatus(t, ctx, pool, user, "new", now)
+	graduateCardID := seedCardWithStatus(t, ctx, pool, user, "new", now)
+
+	sessionRec := call(t, handler, http.MethodGet,
+		fmt.Sprintf("/api/review/session?mode=learn&subject_id=%s&set_ids=%s", user.SubjectID, user.SetID),
+		user.Token, nil)
+	if sessionRec.Code != http.StatusOK {
+		t.Fatalf("GET /review/session: status %d body %s", sessionRec.Code, sessionRec.Body.String())
+	}
+	var session reviewSessionResponse
+	if err := json.Unmarshal(sessionRec.Body.Bytes(), &session); err != nil {
+		t.Fatalf("decode session: %v body=%s", err, sessionRec.Body.String())
+	}
+
+	submit := func(cardID string, rating string) {
+		t.Helper()
+		rec := call(t, handler, http.MethodPost, "/api/review/result", user.Token, map[string]any{
+			"card_id":    cardID,
+			"session_id": session.ID,
+			"mode":       "learn",
+			"rating":     rating,
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("submit %s %s: status %d body %s", cardID, rating, rec.Code, rec.Body.String())
+		}
+	}
+
+	submit(leechCardID, "again")
+	submit(leechCardID, "again")
+	submit(leechCardID, "again")
+
+	submit(graduateCardID, "good")
+	submit(graduateCardID, "good")
+
+	rec := call(t, handler, http.MethodGet, "/api/me/summary", user.Token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /me/summary: status %d body %s", rec.Code, rec.Body.String())
+	}
+	var summary meSummaryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &summary); err != nil {
+		t.Fatalf("decode summary: %v body=%s", err, rec.Body.String())
+	}
+	if summary.NewLearnedToday != 1 {
+		t.Errorf("new_learned_today = %d, want 1 (leeched card must not count)", summary.NewLearnedToday)
 	}
 }

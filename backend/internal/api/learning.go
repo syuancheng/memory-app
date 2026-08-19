@@ -208,14 +208,10 @@ func (s *Server) loadOrCreateDailySession(
 	if err != nil {
 		return dailySessionRecord{}, err
 	}
-	newCandidateLimit := prefs.NewCardsPerDay
-	if prefs.LimitMode == learningModeFixedTotal {
-		newCandidateLimit = prefs.TotalCardsPerDay
-	}
-	if sessionMode == sessionModeLearn && prefs.LimitMode == learningModeFixedTotal {
-		newCandidateLimit = maxInt(0, prefs.TotalCardsPerDay-minInt(len(reviewIDs), prefs.TotalCardsPerDay))
-	}
-	newIDs, err := querySessionCandidateIDs(ctx, tx, userID, subjectID, setIDs, false, newCandidateLimit)
+	// Learn 不再按 new_cards_per_day/total_cards_per_day 截断候选池——那个数字现在只是
+	// Home 页展示"今天还剩多少"用的软目标，不是硬性供给闸门（见 getMeSummary 里的
+	// new_learned_today）。这里跟 reviewIDs 一样，只给一个宽松的技术上限。
+	newIDs, err := querySessionCandidateIDs(ctx, tx, userID, subjectID, setIDs, false, 200)
 	if err != nil {
 		return dailySessionRecord{}, err
 	}
@@ -574,11 +570,7 @@ func normalizeLearningPreferences(prefs learningPreferencesResponse) learningPre
 func buildDailyQueue(reviewIDs []string, newIDs []string, prefs learningPreferencesResponse, sessionMode string) []string {
 	queue := []string{}
 	if sessionMode == sessionModeLearn {
-		limit := prefs.NewCardsPerDay
-		if prefs.LimitMode == learningModeFixedTotal {
-			limit = len(newIDs)
-		}
-		return append(queue, newIDs[:minInt(len(newIDs), limit)]...)
+		return append(queue, newIDs...)
 	}
 	if sessionMode == sessionModeReview {
 		limit := len(reviewIDs)

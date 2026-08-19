@@ -42,7 +42,7 @@ struct SetPickerView: View {
 
     private var primaryTitle: String {
         if canStart {
-            return "\(mode.actionTitle) \(selectedCardCount) cards"
+            return mode == .learn ? mode.actionTitle : "\(mode.actionTitle) \(selectedCardCount) cards"
         }
         return mode == .learn ? "No cards to learn" : "No cards due"
     }
@@ -71,7 +71,7 @@ struct SetPickerView: View {
                     } label: {
                         StudySelectionRow(
                             title: "All",
-                            subtitle: mode == .learn ? "\(subject.cardCount) cards" : "\(subject.dueCount) due · \(subject.cardCount) cards",
+                            subtitle: mode == .learn ? nil : "\(subject.dueCount) due · \(subject.cardCount) cards",
                             count: mode == .learn ? subject.cardCount : subject.dueCount,
                             isSelected: isAllSelected
                         )
@@ -84,7 +84,7 @@ struct SetPickerView: View {
                         } label: {
                             StudySelectionRow(
                                 title: set.name,
-                                subtitle: mode == .learn ? "\(set.cardCount) cards" : "\(set.dueCount) due · \(set.cardCount) cards",
+                                subtitle: mode == .learn ? nil : "\(set.dueCount) due · \(set.cardCount) cards",
                                 count: mode == .learn ? set.cardCount : set.dueCount,
                                 isSelected: isSetSelected(set)
                             )

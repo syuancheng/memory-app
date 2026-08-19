@@ -273,6 +273,7 @@ struct MeSummary: Codable {
     let dueCount: Int
     let newCount: Int
     let reviewDueCount: Int
+    let newLearnedToday: Int
     let masteredCount: Int
     let reviewedToday: Int
     let totalReviewed: Int
@@ -285,6 +286,7 @@ struct MeSummary: Codable {
         case dueCount = "due_count"
         case newCount = "new_count"
         case reviewDueCount = "review_due_count"
+        case newLearnedToday = "new_learned_today"
         case masteredCount = "mastered_count"
         case reviewedToday = "reviewed_today"
         case totalReviewed = "total_reviewed"
@@ -302,6 +304,7 @@ struct MeSummary: Codable {
         dueCount = try c.decode(Int.self, forKey: .dueCount)
         newCount = try c.decodeIfPresent(Int.self, forKey: .newCount) ?? 0
         reviewDueCount = try c.decodeIfPresent(Int.self, forKey: .reviewDueCount) ?? dueCount
+        newLearnedToday = try c.decodeIfPresent(Int.self, forKey: .newLearnedToday) ?? 0
         masteredCount = try c.decode(Int.self, forKey: .masteredCount)
         reviewedToday = try c.decode(Int.self, forKey: .reviewedToday)
         totalReviewed = try c.decode(Int.self, forKey: .totalReviewed)

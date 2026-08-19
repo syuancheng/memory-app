@@ -73,7 +73,7 @@ struct SubjectPickerView: View {
                                 } label: {
                                     StudySelectionRow(
                                         title: subject.name,
-                                        subtitle: mode == .learn ? "\(subject.cardCount) cards" : "\(subject.dueCount) due · \(subject.cardCount) cards",
+                                        subtitle: mode == .learn ? nil : "\(subject.dueCount) due · \(subject.cardCount) cards",
                                         count: mode == .learn ? subject.cardCount : subject.dueCount,
                                         isSelected: false
                                     )
@@ -114,7 +114,7 @@ struct StudySelectionPage<Content: View>: View {
 
 struct StudySelectionRow: View {
     let title: String
-    let subtitle: String
+    let subtitle: String?
     let count: Int
     let isSelected: Bool
 
@@ -134,9 +134,11 @@ struct StudySelectionRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
 
-                Text(subtitle)
-                    .appText(AppType.body, color: AppColor.textTertiary)
-                    .lineLimit(1)
+                if let subtitle {
+                    Text(subtitle)
+                        .appText(AppType.body, color: AppColor.textTertiary)
+                        .lineLimit(1)
+                }
             }
 
             Spacer(minLength: AppSpace.md)

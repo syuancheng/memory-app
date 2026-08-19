@@ -44,17 +44,20 @@ struct HomeView: View {
         return min(reviewDueCount, prefs.totalCardsPerDay)
     }
 
-    /// 今天真正会出现在 Learn session 里的新卡数——受「每日新卡上限」或
-    /// 「每日总量上限减去今天复习占用」限制，而不是账号里全部新卡的总数。
+    /// 今天 Learn 按钮上显示的"还剩多少张新卡"——已经学完（真正毕业进入复习计划，
+    /// 不含被 leech 掉的）的部分会被扣掉，不是账号里全部新卡的总数。学习过程本身不设
+    /// 硬性拦截，这个数字纯展示用，Home 每次重新打开/从 session 返回都会刷新。
     private var todayNewCardCount: Int {
         guard let prefs = learningPreferences else {
             return newCardCount
         }
+        let learnedToday = summary?.newLearnedToday ?? 0
         switch prefs.limitMode {
         case .newPlusReview:
-            return min(newCardCount, prefs.newCardsPerDay)
+            let remaining = max(0, prefs.newCardsPerDay - learnedToday)
+            return min(newCardCount, remaining)
         case .fixedTotal:
-            let remaining = max(0, prefs.totalCardsPerDay - todayReviewCount)
+            let remaining = max(0, prefs.totalCardsPerDay - todayReviewCount - learnedToday)
             return min(newCardCount, remaining)
         }
     }

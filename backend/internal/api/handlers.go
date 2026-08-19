@@ -49,16 +49,17 @@ type reviewPreviewResponse struct {
 }
 
 type meSummaryResponse struct {
-	User           meUserResponse        `json:"user"`
-	TotalCards     int                   `json:"total_cards"`
-	DueCount       int                   `json:"due_count"`
-	NewCount       int                   `json:"new_count"`
-	ReviewDueCount int                   `json:"review_due_count"`
-	MasteredCount  int                   `json:"mastered_count"`
-	ReviewedToday  int                   `json:"reviewed_today"`
-	TotalReviewed  int                   `json:"total_reviewed"`
-	CurrentStreak  int                   `json:"current_streak"`
-	RecentActivity []activityDayResponse `json:"recent_activity"`
+	User            meUserResponse        `json:"user"`
+	TotalCards      int                   `json:"total_cards"`
+	DueCount        int                   `json:"due_count"`
+	NewCount        int                   `json:"new_count"`
+	ReviewDueCount  int                   `json:"review_due_count"`
+	NewLearnedToday int                   `json:"new_learned_today"`
+	MasteredCount   int                   `json:"mastered_count"`
+	ReviewedToday   int                   `json:"reviewed_today"`
+	TotalReviewed   int                   `json:"total_reviewed"`
+	CurrentStreak   int                   `json:"current_streak"`
+	RecentActivity  []activityDayResponse `json:"recent_activity"`
 }
 
 type meUserResponse struct {
@@ -127,6 +128,20 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 		FROM review_events
 		WHERE user_id = $1
 	`, userID).Scan(&summary.ReviewedToday, &summary.TotalReviewed)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// 今天真正"毕业"的新卡数——只数 completed_card_ids，不数 leeched_card_ids
+	// （leech 了不代表学会，也不该占用今天的新卡名额），用跟 /review/session 一样的
+	// 本地日期口径，而不是数据库的 UTC 今天。
+	todayDate := localDateString(time.Now().UTC(), timezoneOffsetMinutes(r.URL.Query().Get("tz_offset_minutes")))
+	err = s.db.QueryRow(r.Context(), `
+		SELECT COALESCE(SUM(jsonb_array_length(completed_card_ids)), 0)::int
+		FROM daily_sessions
+		WHERE user_id = $1 AND session_date = $2::date AND session_mode = 'learn'
+	`, userID, todayDate).Scan(&summary.NewLearnedToday)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

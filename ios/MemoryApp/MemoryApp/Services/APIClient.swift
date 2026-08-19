@@ -135,7 +135,15 @@ final class APIClient {
     }
 
     func getMeSummary() async throws -> MeSummary {
-        try await request(path: "/me/summary")
+        var components = URLComponents(url: baseURL.appendingPathComponent("me/summary"), resolvingAgainstBaseURL: false)
+        let offsetMinutes = TimeZone.current.secondsFromGMT() / 60
+        components?.queryItems = [
+            URLQueryItem(name: "tz_offset_minutes", value: String(offsetMinutes))
+        ]
+        guard let url = components?.url else {
+            throw APIError.badURL
+        }
+        return try await request(url: url)
     }
 
     func getLearningPreferences() async throws -> LearningPreferences {
