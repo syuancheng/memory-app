@@ -55,6 +55,7 @@ type ReviewState struct {
 	DueAt          time.Time  `json:"due_at"`
 	ReviewCount    int        `json:"review_count"`
 	LapseCount     int        `json:"lapse_count"`
+	HasGraduated   bool       `json:"has_graduated"`
 	LastReviewedAt *time.Time `json:"last_reviewed_at,omitempty"`
 	MasteredAt     *time.Time `json:"mastered_at,omitempty"`
 }

@@ -304,10 +304,13 @@ func querySessionCandidateIDs(ctx context.Context, tx pgx.Tx, userID string, sub
 		}
 		conditions = append(conditions, fmt.Sprintf("c.set_id IN (%s)", strings.Join(placeholders, ",")))
 	}
+	// 一张卡从没毕业过（has_graduated=false）之前，不管它当前是 new 还是因为
+	// Again/Hard 暂时变成 learning，都只能出现在 Learn 里；只有真正毕业过
+	// （has_graduated=true）才算进入 Review 的候选池。
 	if dueReview {
-		conditions = append(conditions, "rs.status IN ('learning', 'review')", "rs.due_at <= now()")
+		conditions = append(conditions, "(rs.status = 'review' OR (rs.status = 'learning' AND rs.has_graduated = true))", "rs.due_at <= now()")
 	} else {
-		conditions = append(conditions, "rs.status = 'new'")
+		conditions = append(conditions, "(rs.status = 'new' OR (rs.status = 'learning' AND rs.has_graduated = false AND rs.due_at <= now()))")
 	}
 	if limit <= 0 {
 		limit = 100
