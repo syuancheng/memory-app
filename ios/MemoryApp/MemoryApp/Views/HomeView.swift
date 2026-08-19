@@ -1,7 +1,15 @@
 import SwiftUI
 
+private struct HomeHeaderHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 struct HomeView: View {
     @EnvironmentObject private var dataStore: AppDataStore
+    @Environment(\.locale) private var locale
 
     @State private var subjects: [AppSubject] = []
     @State private var summary: MeSummary?
@@ -10,26 +18,65 @@ struct HomeView: View {
     @State private var showingLearnReviewReminder = false
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var headerHeight: CGFloat = 0
+    @State private var quoteSentence: String?
 
-    private var dueCount: Int {
-        summary?.dueCount ?? subjects.reduce(0) { $0 + $1.dueCount }
+    /// 黄金分割比例：按钮区顶部落在屏幕高度的 61.8% 处，比正中间更贴近单手热区。
+    private let goldenRatio: CGFloat = 0.618
+    /// 句子太长会在这块空档里挤成一坨，超过这个字符数就宁可不放。
+    private let maxQuoteSentenceLength = 70
+
+    private var reviewDueCount: Int {
+        summary?.reviewDueCount ?? subjects.reduce(0) { $0 + $1.dueCount }
     }
 
-    private var reviewedToday: Int {
-        summary?.reviewedToday ?? 0
+    private var newCardCount: Int {
+        summary?.newCount ?? 0
     }
 
     private var reviewReminderTitle: String {
-        dueCount == 1 ? "1 card waiting for review" : "\(dueCount) cards waiting for review"
+        reviewDueCount == 1 ? "1 card waiting for review" : "\(reviewDueCount) cards waiting for review"
+    }
+
+    private var todayTitle: String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.setLocalizedDateFormatFromTemplate("MMMd E")
+        return formatter.string(from: Date())
     }
 
     var body: some View {
         NavigationStack {
-            AppScreen {
-                homeHeader
-                learningFocus
-                loadState
+            GeometryReader { geometry in
+                let goldenGap = max(AppSpace.xxl, geometry.size.height * goldenRatio - headerHeight)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        homeHeader
+                            .background {
+                                GeometryReader { headerGeometry in
+                                    Color.clear.preference(key: HomeHeaderHeightKey.self, value: headerGeometry.size.height)
+                                }
+                            }
+
+                        quoteSentenceView
+                            .frame(height: goldenGap)
+
+                        VStack(alignment: .leading, spacing: AppLayout.cardGap) {
+                            startLearningSection
+                            loadState
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AppLayout.screenMargin)
+                    .padding(.top, AppSpace.lg)
+                    .padding(.bottom, AppSpace.giant)
+                    .frame(minHeight: geometry.size.height, alignment: .top)
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .onPreferenceChange(HomeHeaderHeightKey.self) { headerHeight = $0 }
             }
+            .background(AppColor.surfaceBase.ignoresSafeArea())
             // Tab 根屏用「样式 B · 大标题头」，本身没有导航栏内容，故隐藏原生栏。
             // 注意：这是 Tab 根屏专属；任何 push/present 出来的屏都必须保留原生栏。
             .navigationBarTitleDisplayMode(.inline)
@@ -43,6 +90,9 @@ struct HomeView: View {
         }
         .task {
             await loadHomeData()
+        }
+        .task {
+            await loadQuoteSentence()
         }
         .onReceive(dataStore.$subjects) { loadedSubjects in
             if !loadedSubjects.isEmpty {
@@ -77,7 +127,7 @@ struct HomeView: View {
     }
 
     private var homeHeader: some View {
-        AppLargeHeader(title: "Today", subtitle: "天下难事，必作于易；天下大事，必作于细。") {
+        AppLargeHeader(title: todayTitle, subtitle: "Every big goal begins with a small step.", titleStyle: AppType.title1) {
             // badge 恒显，与改造前行为一致（尚无未读态数据源，不在本次视觉重构范围内）
             AppIconButton(
                 icon: "bell",
@@ -90,87 +140,48 @@ struct HomeView: View {
         }
     }
 
-    /// 两张卡属于同一个「今日焦点」语义单元，用 cardGap 收紧；
-    /// 与大标题之间的间距由 AppScreen 的 xxl 统一提供（原先是硬编码 .padding(.top, 74)）。
-    private var learningFocus: some View {
-        VStack(spacing: AppLayout.cardGap) {
-            dueSummaryCard
-            startLearningCard
-        }
-    }
+    @ViewBuilder
+    private var quoteSentenceView: some View {
+        if let quoteSentence {
+            VStack {
+                Spacer(minLength: 0)
 
-    private var dueSummaryCard: some View {
-        AppCard {
-            HStack(alignment: .center, spacing: AppSpace.lg) {
-                VStack(alignment: .leading, spacing: AppSpace.sm) {
-                    Text("Due today")
-                        .appText(AppType.label, color: AppColor.textTertiary)
+                Text(quoteSentence)
+                    .appText(AppType.headline, color: AppColor.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, AppSpace.xl)
 
-                    HStack(alignment: .firstTextBaseline, spacing: AppSpace.sm) {
-                        Text("\(dueCount)")
-                            .appText(AppType.title1)
-                            .monospacedDigit()
-                            .minimumScaleFactor(0.74)
-
-                        Text(dueCount == 1 ? "card waiting" : "cards waiting")
-                            .appText(AppType.body, color: AppColor.textSecondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                    }
-                }
-
-                Spacer(minLength: AppSpace.sm)
-
-                Text("\(reviewedToday) done today")
-                    .appText(AppType.label, color: AppColor.textSecondary)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .padding(.horizontal, AppSpace.md)
-                    .frame(height: AppLayout.buttonHeightSmall)
-                    .background(AppColor.surfaceSunken, in: Capsule())
+                Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity)
+        } else {
+            Color.clear
         }
-        .accessibilityElement(children: .combine)
     }
 
-    private var startLearningCard: some View {
-        AppCard(variant: .inverse, padding: AppSpace.xl) {
-            VStack(alignment: .leading, spacing: AppSpace.lg) {
-                VStack(alignment: .leading, spacing: AppSpace.sm) {
-                    Text("Start learning")
-                        .appText(AppType.label, color: AppColor.primaryOnInverse)
+    private var startLearningSection: some View {
+        HStack(spacing: AppSpace.md) {
+            HomeStudyActionButton(
+                title: "Review",
+                subtitle: reviewDueCount == 1 ? "1 card due" : "\(reviewDueCount) cards due",
+                icon: "arrow.clockwise",
+                style: .filled
+            ) {
+                activeStudyMode = .review
+            }
 
-                    Text("Choose today's path")
-                        .appText(AppType.title2, color: AppColor.textOnInverse)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text("Review due cards or learn new English sentences.")
-                        .appText(AppType.body, color: AppColor.textOnInverseSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                HStack(spacing: AppSpace.md) {
-                    HomeStudyActionButton(
-                        title: "Review",
-                        subtitle: dueCount == 1 ? "1 card due" : "\(dueCount) cards due",
-                        icon: "arrow.clockwise",
-                        style: .filled
-                    ) {
-                        activeStudyMode = .review
-                    }
-
-                    HomeStudyActionButton(
-                        title: "Learn",
-                        subtitle: "New cards",
-                        icon: "plus",
-                        style: .light
-                    ) {
-                        if dueCount > 0 {
-                            showingLearnReviewReminder = true
-                        } else {
-                            activeStudyMode = .learn
-                        }
-                    }
+            HomeStudyActionButton(
+                title: "Learn",
+                subtitle: newCardCount == 1 ? "1 new card" : "\(newCardCount) new cards",
+                icon: "plus",
+                style: .light
+            ) {
+                if reviewDueCount > 0 {
+                    showingLearnReviewReminder = true
+                } else {
+                    activeStudyMode = .learn
                 }
             }
         }
@@ -216,6 +227,18 @@ struct HomeView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func loadQuoteSentence() async {
+        do {
+            let cards = try await APIClient.shared.listDueCards(subjectID: "", setIDs: [], limit: 20)
+            let candidates = cards
+                .map { $0.englishSentence.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty && $0.count <= maxQuoteSentenceLength }
+            quoteSentence = candidates.randomElement()
+        } catch {
+            quoteSentence = nil
+        }
     }
 }
 

@@ -549,7 +549,7 @@ func saveDailySessionProgress(ctx context.Context, tx pgx.Tx, session dailySessi
 func defaultLearningPreferences() learningPreferencesResponse {
 	return learningPreferencesResponse{
 		LimitMode:            learningModeNewPlusReview,
-		NewCardsPerDay:       10,
+		NewCardsPerDay:       20,
 		TotalCardsPerDay:     30,
 		DailyReminderTime:    "20:00",
 		DefaultReviewMode:    "Review",

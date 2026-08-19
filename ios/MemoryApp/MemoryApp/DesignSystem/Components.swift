@@ -209,13 +209,16 @@ extension View {
 struct AppLargeHeader<Trailing: View>: View {
     let title: String
     var subtitle: String? = nil
+    var titleStyle: AppTextStyle = AppType.display
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AppSpace.lg) {
             VStack(alignment: .leading, spacing: AppSpace.xs) {
                 Text(LocalizedStringKey(title))
-                    .appText(AppType.display)
+                    .appText(titleStyle)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
 
                 if let subtitle {
                     Text(LocalizedStringKey(subtitle))
@@ -233,8 +236,8 @@ struct AppLargeHeader<Trailing: View>: View {
 }
 
 extension AppLargeHeader where Trailing == EmptyView {
-    init(title: String, subtitle: String? = nil) {
-        self.init(title: title, subtitle: subtitle) { EmptyView() }
+    init(title: String, subtitle: String? = nil, titleStyle: AppTextStyle = AppType.display) {
+        self.init(title: title, subtitle: subtitle, titleStyle: titleStyle) { EmptyView() }
     }
 }
 

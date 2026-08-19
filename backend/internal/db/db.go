@@ -113,7 +113,7 @@ ADD COLUMN IF NOT EXISTS learning_step INTEGER NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS learning_preferences (
   user_id UUID PRIMARY KEY REFERENCES users(id),
   limit_mode TEXT NOT NULL DEFAULT 'new_plus_review',
-  new_cards_per_day INTEGER NOT NULL DEFAULT 10,
+  new_cards_per_day INTEGER NOT NULL DEFAULT 20,
   total_cards_per_day INTEGER NOT NULL DEFAULT 30,
   daily_reminder_enabled BOOLEAN NOT NULL DEFAULT false,
   daily_reminder_time TEXT NOT NULL DEFAULT '20:00',

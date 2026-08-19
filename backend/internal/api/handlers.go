@@ -52,6 +52,8 @@ type meSummaryResponse struct {
 	User           meUserResponse        `json:"user"`
 	TotalCards     int                   `json:"total_cards"`
 	DueCount       int                   `json:"due_count"`
+	NewCount       int                   `json:"new_count"`
+	ReviewDueCount int                   `json:"review_due_count"`
 	MasteredCount  int                   `json:"mastered_count"`
 	ReviewedToday  int                   `json:"reviewed_today"`
 	TotalReviewed  int                   `json:"total_reviewed"`
@@ -84,6 +86,14 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 		           AND rs.due_at <= now()
 		       )::int AS due_count,
 		       COUNT(DISTINCT c.id) FILTER (
+		         WHERE c.deleted_at IS NULL AND rs.status = 'new'
+		       )::int AS new_count,
+		       COUNT(DISTINCT c.id) FILTER (
+		         WHERE c.deleted_at IS NULL
+		           AND rs.status IN ('learning', 'review')
+		           AND rs.due_at <= now()
+		       )::int AS review_due_count,
+		       COUNT(DISTINCT c.id) FILTER (
 		         WHERE c.deleted_at IS NULL AND rs.status = 'mastered'
 		       )::int AS mastered_count
 		FROM users u
@@ -98,6 +108,8 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 		&summary.User.Provider,
 		&summary.TotalCards,
 		&summary.DueCount,
+		&summary.NewCount,
+		&summary.ReviewDueCount,
 		&summary.MasteredCount,
 	)
 	if err == pgx.ErrNoRows {

@@ -875,7 +875,7 @@ private struct ConnectedAccountsPage: View {
 private struct LearningPreferencesPage: View {
     @State private var preferences = LearningPreferences(
         limitMode: .newPlusReview,
-        newCardsPerDay: 10,
+        newCardsPerDay: 20,
         totalCardsPerDay: 30,
         dailyReminderEnabled: false,
         dailyReminderTime: "20:00",

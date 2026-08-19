@@ -81,6 +81,11 @@ struct ReviewCard: Identifiable, Codable, Hashable {
     /// 解析后的方向；未知值回落 zh_to_en，与后端 NormalizeDirection 行为一致
     var cardDirection: CardDirection { CardDirection(rawValueOrDefault: direction) }
 
+    /// 这张卡里真正的英语句子：zh_to_en 藏在背面答案，en_to_zh 就在正面。
+    var englishSentence: String {
+        cardDirection == .enToZh ? frontText : answerText
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
         case setID = "set_id"
@@ -266,6 +271,8 @@ struct MeSummary: Codable {
     let user: MeUser
     let totalCards: Int
     let dueCount: Int
+    let newCount: Int
+    let reviewDueCount: Int
     let masteredCount: Int
     let reviewedToday: Int
     let totalReviewed: Int
@@ -276,11 +283,30 @@ struct MeSummary: Codable {
         case user
         case totalCards = "total_cards"
         case dueCount = "due_count"
+        case newCount = "new_count"
+        case reviewDueCount = "review_due_count"
         case masteredCount = "mastered_count"
         case reviewedToday = "reviewed_today"
         case totalReviewed = "total_reviewed"
         case currentStreak = "current_streak"
         case recentActivity = "recent_activity"
+    }
+
+    // 服务端还没上线 new_count/review_due_count 之前，旧响应里没有这两个键——
+    // 用 dueCount（旧的「新+复习」合并口径）兜底 reviewDueCount，newCount 兜 0，
+    // 保持和这次拆分之前完全一样的行为，而不是直接解码失败。
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        user = try c.decode(MeUser.self, forKey: .user)
+        totalCards = try c.decode(Int.self, forKey: .totalCards)
+        dueCount = try c.decode(Int.self, forKey: .dueCount)
+        newCount = try c.decodeIfPresent(Int.self, forKey: .newCount) ?? 0
+        reviewDueCount = try c.decodeIfPresent(Int.self, forKey: .reviewDueCount) ?? dueCount
+        masteredCount = try c.decode(Int.self, forKey: .masteredCount)
+        reviewedToday = try c.decode(Int.self, forKey: .reviewedToday)
+        totalReviewed = try c.decode(Int.self, forKey: .totalReviewed)
+        currentStreak = try c.decode(Int.self, forKey: .currentStreak)
+        recentActivity = try c.decode([ActivityDay].self, forKey: .recentActivity)
     }
 }
 
