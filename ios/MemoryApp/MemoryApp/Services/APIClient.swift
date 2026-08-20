@@ -233,22 +233,20 @@ final class APIClient {
         try await request(path: "/cards/\(cardID)/review-preview")
     }
 
-    func submitReview(card: ReviewCard, mode: StudyMode = .review, rating: Rating, revealedCount: Int, clientReviewID: String = UUID().uuidString, sessionID: String? = nil) async throws -> ReviewState {
+    func submitReview(card: ReviewCard, mode: StudyMode = .review, rating: Rating, revealedCount: Int, clientReviewID: String = UUID().uuidString) async throws -> ReviewState {
         try await submitReview(
             cardID: card.id,
             mode: mode.rawValue,
             rating: rating,
             revealedCount: revealedCount,
             totalTokensCount: card.answerTokens.count,
-            clientReviewID: clientReviewID,
-            sessionID: sessionID
+            clientReviewID: clientReviewID
         )
     }
 
-    func submitReview(cardID: String, mode: String, rating: Rating, revealedCount: Int, totalTokensCount: Int, clientReviewID: String, sessionID: String? = nil) async throws -> ReviewState {
+    func submitReview(cardID: String, mode: String, rating: Rating, revealedCount: Int, totalTokensCount: Int, clientReviewID: String) async throws -> ReviewState {
         let payload = ReviewResultPayload(
             cardID: cardID,
-            sessionID: sessionID,
             clientReviewID: clientReviewID,
             mode: mode,
             rating: rating.rawValue,
@@ -357,7 +355,6 @@ private struct AppleSignInPayload: Encodable {
 
 private struct ReviewResultPayload: Encodable {
     let cardID: String
-    let sessionID: String?
     let clientReviewID: String
     let mode: String
     let rating: String
@@ -366,7 +363,6 @@ private struct ReviewResultPayload: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case cardID = "card_id"
-        case sessionID = "session_id"
         case clientReviewID = "client_review_id"
         case mode
         case rating

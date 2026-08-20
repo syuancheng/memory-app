@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-spaced-repetition/go-fsrs/v3"
 )
 
 type nameRequest struct {
@@ -34,7 +35,6 @@ type cardRequest struct {
 
 type reviewResultRequest struct {
 	CardID              string `json:"card_id"`
-	SessionID           string `json:"session_id"`
 	ClientReviewID      string `json:"client_review_id"`
 	Mode                string `json:"mode"`
 	Rating              string `json:"rating"`
@@ -83,20 +83,23 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 		       COUNT(DISTINCT c.id) FILTER (WHERE c.deleted_at IS NULL)::int AS total_cards,
 		       COUNT(DISTINCT c.id) FILTER (
 		         WHERE c.deleted_at IS NULL
-		           AND rs.status NOT IN ('deleted', 'mastered')
+		           AND rs.mastered_at IS NULL
 		           AND rs.due_at <= now()
 		       )::int AS due_count,
 		       COUNT(DISTINCT c.id) FILTER (
 		         WHERE c.deleted_at IS NULL
-		           AND (rs.status = 'new' OR (rs.status = 'learning' AND rs.has_graduated = false AND rs.due_at <= now()))
+		           AND rs.mastered_at IS NULL
+		           AND rs.state IN (0, 1)
+		           AND rs.due_at <= now()
 		       )::int AS new_count,
 		       COUNT(DISTINCT c.id) FILTER (
 		         WHERE c.deleted_at IS NULL
-		           AND (rs.status = 'review' OR (rs.status = 'learning' AND rs.has_graduated = true))
+		           AND rs.mastered_at IS NULL
+		           AND rs.state IN (2, 3)
 		           AND rs.due_at <= now()
 		       )::int AS review_due_count,
 		       COUNT(DISTINCT c.id) FILTER (
-		         WHERE c.deleted_at IS NULL AND rs.status = 'mastered'
+		         WHERE c.deleted_at IS NULL AND rs.mastered_at IS NOT NULL
 		       )::int AS mastered_count
 		FROM users u
 		LEFT JOIN account_connections ac ON ac.user_id = u.id AND ac.provider = 'apple'
@@ -134,15 +137,17 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 今天真正"毕业"的新卡数——只数 completed_card_ids，不数 leeched_card_ids
-	// （leech 了不代表学会，也不该占用今天的新卡名额），用跟 /review/session 一样的
-	// 本地日期口径，而不是数据库的 UTC 今天。
-	todayDate := localDateString(time.Now().UTC(), timezoneOffsetMinutes(r.URL.Query().Get("tz_offset_minutes")))
+	// 今天真正"毕业"的新卡数——直接看 graduated_at 落在用户本地的今天，而不是
+	// 数据库的 UTC 今天。graduated_at 只在一张卡第一次进入 Review/Relearning 时
+	// 写一次（见 scheduler.applyGraduation），之后即使又 lapse 也不会重复计数。
+	dayStart, dayEnd := localDayRange(time.Now().UTC(), timezoneOffsetMinutes(r.URL.Query().Get("tz_offset_minutes")))
 	err = s.db.QueryRow(r.Context(), `
-		SELECT COALESCE(SUM(jsonb_array_length(completed_card_ids)), 0)::int
-		FROM daily_sessions
-		WHERE user_id = $1 AND session_date = $2::date AND session_mode = 'learn'
-	`, userID, todayDate).Scan(&summary.NewLearnedToday)
+		SELECT COUNT(*)::int
+		FROM review_states rs
+		JOIN cards c ON c.id = rs.card_id
+		WHERE c.user_id = $1 AND c.deleted_at IS NULL
+		  AND rs.graduated_at >= $2 AND rs.graduated_at < $3
+	`, userID, dayStart, dayEnd).Scan(&summary.NewLearnedToday)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -197,8 +202,7 @@ func (s *Server) listSubjects(w http.ResponseWriter, r *http.Request) {
 		SELECT s.id::text, s.name,
 		       COUNT(DISTINCT c.id)::int AS card_count,
 		       COUNT(DISTINCT CASE
-		         WHEN (rs.status = 'review' OR (rs.status = 'learning' AND rs.has_graduated = true))
-		           AND rs.due_at <= now() THEN c.id
+		         WHEN rs.mastered_at IS NULL AND rs.state IN (2, 3) AND rs.due_at <= now() THEN c.id
 		       END)::int AS due_count
 		FROM subjects s
 		LEFT JOIN sets st ON st.subject_id = s.id AND st.deleted_at IS NULL
@@ -232,8 +236,7 @@ func (s *Server) listAllSets(w http.ResponseWriter, r *http.Request) {
 		SELECT st.id::text, st.subject_id::text, st.name,
 		       COUNT(DISTINCT c.id)::int AS card_count,
 		       COUNT(DISTINCT CASE
-		         WHEN (rs.status = 'review' OR (rs.status = 'learning' AND rs.has_graduated = true))
-		           AND rs.due_at <= now() THEN c.id
+		         WHEN rs.mastered_at IS NULL AND rs.state IN (2, 3) AND rs.due_at <= now() THEN c.id
 		       END)::int AS due_count
 		FROM sets st
 		LEFT JOIN cards c ON c.set_id = st.id AND c.deleted_at IS NULL
@@ -367,19 +370,6 @@ func (s *Server) deleteSubject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err = tx.Exec(r.Context(), `
-		UPDATE review_states SET status = 'deleted'
-		WHERE card_id IN (
-			SELECT c.id
-			FROM cards c
-			JOIN sets st ON st.id = c.set_id
-			WHERE st.subject_id = $1 AND c.user_id = $2
-		)
-	`, subjectID, userID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
 	if err = tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -394,8 +384,7 @@ func (s *Server) listSets(w http.ResponseWriter, r *http.Request) {
 		SELECT st.id::text, st.subject_id::text, st.name,
 		       COUNT(DISTINCT c.id)::int AS card_count,
 		       COUNT(DISTINCT CASE
-		         WHEN (rs.status = 'review' OR (rs.status = 'learning' AND rs.has_graduated = true))
-		           AND rs.due_at <= now() THEN c.id
+		         WHEN rs.mastered_at IS NULL AND rs.state IN (2, 3) AND rs.due_at <= now() THEN c.id
 		       END)::int AS due_count
 		FROM sets st
 		LEFT JOIN cards c ON c.set_id = st.id AND c.deleted_at IS NULL
@@ -532,19 +521,6 @@ func (s *Server) deleteSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err = tx.Exec(r.Context(), `
-		UPDATE review_states SET status = 'deleted'
-		WHERE card_id IN (
-			SELECT c.id
-			FROM cards c
-			JOIN sets st ON st.id = c.set_id
-			WHERE st.subject_id = $1 AND c.user_id = $2 AND c.set_id = $3
-		)
-	`, subjectID, userID, setID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
 	if err = tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -647,17 +623,6 @@ func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "card not found")
 		return
 	}
-	// 纵深防御：上面的 UPDATE cards 已带 user_id 且校验过 RowsAffected，
-	// 但这条不在同一事务里，补一次归属校验（写法同 masterCard）。
-	_, err = s.db.Exec(r.Context(), `
-		UPDATE review_states SET status = 'deleted'
-		WHERE card_id = $1
-		  AND EXISTS (SELECT 1 FROM cards WHERE id = $1 AND user_id = $2)
-	`, chi.URLParam(r, "cardID"), userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -666,8 +631,7 @@ func (s *Server) masterCard(w http.ResponseWriter, r *http.Request) {
 	cardID := chi.URLParam(r, "cardID")
 	result, err := s.db.Exec(r.Context(), `
 		UPDATE review_states
-		SET status = 'mastered',
-		    due_at = now() + interval '100 years',
+		SET due_at = now() + interval '100 years',
 		    mastered_at = now(),
 		    last_reviewed_at = now()
 		WHERE card_id = $1
@@ -765,9 +729,6 @@ func (s *Server) submitReviewResult(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	next := scheduler.Apply(state, req.Rating, now)
-	// 一旦真正毕业过（进入过 review 状态）就不会再变回没毕业——哪怕之后又 lapse 回 learning，
-	// has_graduated 也保持 true，这样它以后到期了还是会正常出现在 Review 里，不会被打回 Learn。
-	next.HasGraduated = state.HasGraduated || next.Status == "review"
 	_, err = tx.Exec(r.Context(), `
 		INSERT INTO review_events (
 			id, card_id, user_id, client_review_id, mode, rating, revealed_tokens_count, total_tokens_count
@@ -779,24 +740,21 @@ func (s *Server) submitReviewResult(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = tx.Exec(r.Context(), `
 		UPDATE review_states
-		SET status = $2,
-		    learning_step = $3,
-		    ease = $4,
-		    interval_days = $5,
-		    due_at = $6,
-		    review_count = $7,
-		    lapse_count = $8,
-		    has_graduated = $9,
+		SET state = $2,
+		    stability = $3,
+		    difficulty = $4,
+		    due_at = $5,
+		    scheduled_days = $6,
+		    elapsed_days = $7,
+		    review_count = $8,
+		    lapse_count = $9,
 		    last_reviewed_at = $10,
-		    mastered_at = $11
+		    graduated_at = $11,
+		    mastered_at = $12
 		WHERE card_id = $1
-	`, next.CardID, next.Status, next.LearningStep, next.Ease, next.IntervalDays, next.DueAt, next.ReviewCount, next.LapseCount, next.HasGraduated, next.LastReviewedAt, next.MasteredAt)
+	`, next.CardID, int16(next.State), next.Stability, next.Difficulty, next.DueAt, next.ScheduledDays, next.ElapsedDays, next.ReviewCount, next.LapseCount, next.LastReviewedAt, next.GraduatedAt, next.MasteredAt)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := updateDailySessionProgress(r.Context(), tx, userID, req.SessionID, req.CardID, req.Rating, state, next); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
@@ -808,50 +766,58 @@ func (s *Server) submitReviewResult(w http.ResponseWriter, r *http.Request) {
 
 func loadReviewState(ctx context.Context, pool *pgxpool.Pool, userID string, cardID string) (model.ReviewState, error) {
 	var state model.ReviewState
+	var stateValue int16
 	err := pool.QueryRow(ctx, `
-		SELECT rs.card_id::text, rs.status, rs.learning_step, rs.ease::float8, rs.interval_days, rs.due_at,
-		       rs.review_count, rs.lapse_count, rs.has_graduated, rs.last_reviewed_at, rs.mastered_at
+		SELECT rs.card_id::text, rs.state, rs.stability, rs.difficulty, rs.due_at,
+		       rs.scheduled_days, rs.elapsed_days, rs.review_count, rs.lapse_count,
+		       rs.last_reviewed_at, rs.graduated_at, rs.mastered_at
 		FROM review_states rs
 		JOIN cards c ON c.id = rs.card_id
 		WHERE rs.card_id = $1 AND c.user_id = $2 AND c.deleted_at IS NULL
 	`, cardID, userID).Scan(
 		&state.CardID,
-		&state.Status,
-		&state.LearningStep,
-		&state.Ease,
-		&state.IntervalDays,
+		&stateValue,
+		&state.Stability,
+		&state.Difficulty,
 		&state.DueAt,
+		&state.ScheduledDays,
+		&state.ElapsedDays,
 		&state.ReviewCount,
 		&state.LapseCount,
-		&state.HasGraduated,
 		&state.LastReviewedAt,
+		&state.GraduatedAt,
 		&state.MasteredAt,
 	)
+	state.State = fsrs.State(stateValue)
 	return state, err
 }
 
 func loadReviewStateForUpdate(ctx context.Context, tx pgx.Tx, userID string, cardID string) (model.ReviewState, error) {
 	var state model.ReviewState
+	var stateValue int16
 	err := tx.QueryRow(ctx, `
-		SELECT rs.card_id::text, rs.status, rs.learning_step, rs.ease::float8, rs.interval_days, rs.due_at,
-		       rs.review_count, rs.lapse_count, rs.has_graduated, rs.last_reviewed_at, rs.mastered_at
+		SELECT rs.card_id::text, rs.state, rs.stability, rs.difficulty, rs.due_at,
+		       rs.scheduled_days, rs.elapsed_days, rs.review_count, rs.lapse_count,
+		       rs.last_reviewed_at, rs.graduated_at, rs.mastered_at
 		FROM review_states rs
 		JOIN cards c ON c.id = rs.card_id
 		WHERE rs.card_id = $1 AND c.user_id = $2 AND c.deleted_at IS NULL
 		FOR UPDATE OF rs
 	`, cardID, userID).Scan(
 		&state.CardID,
-		&state.Status,
-		&state.LearningStep,
-		&state.Ease,
-		&state.IntervalDays,
+		&stateValue,
+		&state.Stability,
+		&state.Difficulty,
 		&state.DueAt,
+		&state.ScheduledDays,
+		&state.ElapsedDays,
 		&state.ReviewCount,
 		&state.LapseCount,
-		&state.HasGraduated,
 		&state.LastReviewedAt,
+		&state.GraduatedAt,
 		&state.MasteredAt,
 	)
+	state.State = fsrs.State(stateValue)
 	return state, err
 }
 
@@ -996,7 +962,7 @@ func loadCards(ctx context.Context, pool *pgxpool.Pool, filters cardFilters) ([]
 		argIndex++
 	}
 	if filters.OnlyDue {
-		conditions = append(conditions, "rs.due_at <= now()", "rs.status NOT IN ('deleted', 'mastered')")
+		conditions = append(conditions, "rs.due_at <= now()", "rs.mastered_at IS NULL")
 	}
 	if len(filters.SetIDs) > 0 {
 		placeholders := make([]string, 0, len(filters.SetIDs))

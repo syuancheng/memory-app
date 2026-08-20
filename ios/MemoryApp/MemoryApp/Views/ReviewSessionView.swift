@@ -12,7 +12,6 @@ struct ReviewSessionView: View {
     @State private var reviewStep = 0
     @State private var initialCardCount = 0
     @State private var completedCount = 0
-    @State private var leechedCount = 0
     @State private var gradePreviews: [ReviewGradePreview] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -43,7 +42,7 @@ struct ReviewSessionView: View {
                 ) { rating, revealedCount in
                     await submit(rating: rating, revealedCount: revealedCount)
                 }
-            } else if let reviewSession, reviewSession.remainingCount > 0, reviewSession.nextAvailableAt != nil {
+            } else if let reviewSession, reviewSession.nextAvailableAt != nil {
                 waitingView()
             } else if initialCardCount > 0 {
                 completionView
@@ -79,7 +78,11 @@ struct ReviewSessionView: View {
         errorMessage = nil
         do {
             let loadedSession = try await APIClient.shared.getReviewSession(subjectID: subject.id, setIDs: setIDs, mode: mode)
-            applyLoadedSession(loadedSession)
+            reviewSession = loadedSession
+            cards = loadedSession.cards
+            initialCardCount = loadedSession.cards.count
+            completedCount = 0
+            reviewStep += 1
             await loadGradePreviews()
         } catch {
             errorMessage = error.localizedDescription
@@ -87,12 +90,9 @@ struct ReviewSessionView: View {
         isLoading = false
     }
 
-    private func applyLoadedSession(_ loadedSession: ReviewSessionPayload) {
+    private func applyRefreshedSession(_ loadedSession: ReviewSessionPayload) {
         reviewSession = loadedSession
         cards = loadedSession.cards
-        initialCardCount = loadedSession.initialTotalCount
-        completedCount = loadedSession.completedCount
-        leechedCount = loadedSession.leechedCount
         reviewStep += 1
     }
 
@@ -123,10 +123,6 @@ struct ReviewSessionView: View {
             errorMessage = "Please sign in again."
             return false
         }
-        guard let sessionID = reviewSession?.id else {
-            errorMessage = "Review session is not ready."
-            return false
-        }
 
         errorMessage = nil
         do {
@@ -134,18 +130,18 @@ struct ReviewSessionView: View {
                 card: submittedCard,
                 mode: mode,
                 rating: rating,
-                revealedCount: revealedCount,
-                sessionID: sessionID
+                revealedCount: revealedCount
             )
+            completedCount += 1
             dataStore.invalidateAfterReviewMutation(cardID: submittedCard.id)
             let refreshedSession = try await APIClient.shared.getReviewSession(subjectID: subject.id, setIDs: setIDs, mode: mode)
-            applyLoadedSession(refreshedSession)
+            applyRefreshedSession(refreshedSession)
             await loadGradePreviews()
             Task {
                 await dataStore.warmHome()
             }
-            if refreshedSession.isCheckInCompleted {
-                lastReviewSummary = "Completed \(refreshedSession.completedCount) cards"
+            if refreshedSession.cards.isEmpty && refreshedSession.nextAvailableAt == nil {
+                lastReviewSummary = "Completed \(completedCount) cards"
             }
             return true
         } catch {
@@ -226,10 +222,7 @@ struct ReviewSessionView: View {
     }
 
     private var completionMessage: String {
-        if leechedCount > 0 {
-            return "Completed \(completedCount), paused \(leechedCount) hard cards."
-        }
-        return "Completed \(completedCount) of \(initialCardCount) cards."
+        "Completed \(completedCount) of \(initialCardCount) cards."
     }
 
     private func waitingView() -> some View {

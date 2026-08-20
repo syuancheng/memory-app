@@ -3,6 +3,8 @@ package model
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/open-spaced-repetition/go-fsrs/v3"
 )
 
 type Subject struct {
@@ -48,15 +50,16 @@ type Card struct {
 
 type ReviewState struct {
 	CardID         string     `json:"card_id"`
-	Status         string     `json:"status"`
-	LearningStep   int        `json:"learning_step"`
-	Ease           float64    `json:"ease"`
-	IntervalDays   int        `json:"interval_days"`
+	State          fsrs.State `json:"state"`
+	Stability      float64    `json:"stability"`
+	Difficulty     float64    `json:"difficulty"`
 	DueAt          time.Time  `json:"due_at"`
+	ScheduledDays  int        `json:"scheduled_days"`
+	ElapsedDays    int        `json:"elapsed_days"`
 	ReviewCount    int        `json:"review_count"`
 	LapseCount     int        `json:"lapse_count"`
-	HasGraduated   bool       `json:"has_graduated"`
 	LastReviewedAt *time.Time `json:"last_reviewed_at,omitempty"`
+	GraduatedAt    *time.Time `json:"graduated_at,omitempty"`
 	MasteredAt     *time.Time `json:"mastered_at,omitempty"`
 }
 

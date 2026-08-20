@@ -81,14 +81,16 @@ CREATE TABLE IF NOT EXISTS cards (
 
 CREATE TABLE IF NOT EXISTS review_states (
   card_id UUID PRIMARY KEY REFERENCES cards(id),
-  status TEXT NOT NULL DEFAULT 'new',
-  learning_step INTEGER NOT NULL DEFAULT 0,
-  ease REAL NOT NULL DEFAULT 2.3,
-  interval_days INTEGER NOT NULL DEFAULT 0,
+  state SMALLINT NOT NULL DEFAULT 0 CHECK (state IN (0, 1, 2, 3)), -- 0=New/1=Learning/2=Review/3=Relearning (fsrs.State)
+  stability DOUBLE PRECISION NOT NULL DEFAULT 0,
+  difficulty DOUBLE PRECISION NOT NULL DEFAULT 0,
   due_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  scheduled_days INTEGER NOT NULL DEFAULT 0,
+  elapsed_days INTEGER NOT NULL DEFAULT 0,
   review_count INTEGER NOT NULL DEFAULT 0,
   lapse_count INTEGER NOT NULL DEFAULT 0,
   last_reviewed_at TIMESTAMPTZ,
+  graduated_at TIMESTAMPTZ,
   mastered_at TIMESTAMPTZ
 );
 
@@ -107,19 +109,6 @@ CREATE TABLE IF NOT EXISTS review_events (
 ALTER TABLE review_events
 ADD COLUMN IF NOT EXISTS client_review_id TEXT;
 
-ALTER TABLE review_states
-ADD COLUMN IF NOT EXISTS learning_step INTEGER NOT NULL DEFAULT 0;
-
-ALTER TABLE review_states
-ADD COLUMN IF NOT EXISTS has_graduated BOOLEAN NOT NULL DEFAULT false;
-
--- 回填存量数据：status=review 的卡显然毕业过；status=learning 但 lapse_count>0
--- 的卡，lapse_count 只会在"曾经是 review 状态时又点了 Again"才会 +1（见 scheduler.Apply），
--- 所以这也是毕业过又忘了的信号。其余 learning/new 的卡默认 false（从没毕业过）。
-UPDATE review_states
-SET has_graduated = true
-WHERE (status = 'review' OR lapse_count > 0) AND has_graduated = false;
-
 CREATE TABLE IF NOT EXISTS learning_preferences (
   user_id UUID PRIMARY KEY REFERENCES users(id),
   limit_mode TEXT NOT NULL DEFAULT 'new_plus_review',
@@ -130,28 +119,6 @@ CREATE TABLE IF NOT EXISTS learning_preferences (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
-CREATE TABLE IF NOT EXISTS daily_sessions (
-  id UUID PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES users(id),
-  session_date DATE NOT NULL,
-  session_mode TEXT NOT NULL DEFAULT 'review',
-  scope_key TEXT NOT NULL DEFAULT '',
-  subject_id UUID,
-  set_ids JSONB NOT NULL DEFAULT '[]',
-  initial_total_count INTEGER NOT NULL DEFAULT 0,
-  active_queue_card_ids JSONB NOT NULL DEFAULT '[]',
-  completed_card_ids JSONB NOT NULL DEFAULT '[]',
-  leeched_card_ids JSONB NOT NULL DEFAULT '[]',
-  card_retry_counts JSONB NOT NULL DEFAULT '{}',
-  is_check_in_completed BOOLEAN NOT NULL DEFAULT false,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(user_id, session_date, scope_key)
-);
-
-ALTER TABLE daily_sessions
-ADD COLUMN IF NOT EXISTS session_mode TEXT NOT NULL DEFAULT 'review';
 
 CREATE TABLE IF NOT EXISTS auth_verification_codes (
   id UUID PRIMARY KEY,
@@ -233,11 +200,9 @@ CREATE INDEX IF NOT EXISTS idx_sets_user_subject_name_active ON sets(user_id, su
 CREATE INDEX IF NOT EXISTS idx_cards_set_active ON cards(set_id) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_cards_user_set_active ON cards(user_id, set_id, created_at DESC) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_cards_user_subject_active ON cards(user_id, subject_id, created_at DESC) WHERE deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_review_states_due ON review_states(due_at) WHERE status NOT IN ('deleted', 'mastered');
-CREATE INDEX IF NOT EXISTS idx_review_states_active_due_card ON review_states(due_at, card_id) WHERE status NOT IN ('deleted', 'mastered');
+CREATE INDEX IF NOT EXISTS idx_review_states_due ON review_states(due_at) WHERE mastered_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_review_states_active_due_card ON review_states(due_at, card_id) WHERE mastered_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_learning_preferences_user ON learning_preferences(user_id);
-CREATE INDEX IF NOT EXISTS idx_daily_sessions_user_date ON daily_sessions(user_id, session_date DESC);
-CREATE INDEX IF NOT EXISTS idx_daily_sessions_user_scope_date ON daily_sessions(user_id, scope_key, session_date DESC);
 CREATE INDEX IF NOT EXISTS idx_review_events_user_created_at ON review_events(user_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_review_events_user_client_review_id
   ON review_events(user_id, client_review_id)

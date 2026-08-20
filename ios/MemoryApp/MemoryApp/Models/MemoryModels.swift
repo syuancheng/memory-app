@@ -128,35 +128,31 @@ struct GrammarPhrasePayload: Encodable, Hashable {
 
 struct ReviewState: Codable {
     let cardID: String
-    let status: String
-    let learningStep: Int
-    let ease: Double
-    let intervalDays: Int
+    let state: Int
+    let stability: Double
+    let difficulty: Double
     let dueAt: String
+    let scheduledDays: Int
+    let elapsedDays: Int
     let reviewCount: Int
     let lapseCount: Int
+    let lastReviewedAt: String?
+    let graduatedAt: String?
+    let masteredAt: String?
 
     enum CodingKeys: String, CodingKey {
         case cardID = "card_id"
-        case status
-        case learningStep = "learning_step"
-        case ease
-        case intervalDays = "interval_days"
+        case state
+        case stability
+        case difficulty
         case dueAt = "due_at"
+        case scheduledDays = "scheduled_days"
+        case elapsedDays = "elapsed_days"
         case reviewCount = "review_count"
         case lapseCount = "lapse_count"
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        cardID = try c.decode(String.self, forKey: .cardID)
-        status = try c.decode(String.self, forKey: .status)
-        learningStep = try c.decodeIfPresent(Int.self, forKey: .learningStep) ?? 0
-        ease = try c.decode(Double.self, forKey: .ease)
-        intervalDays = try c.decode(Int.self, forKey: .intervalDays)
-        dueAt = try c.decode(String.self, forKey: .dueAt)
-        reviewCount = try c.decode(Int.self, forKey: .reviewCount)
-        lapseCount = try c.decode(Int.self, forKey: .lapseCount)
+        case lastReviewedAt = "last_reviewed_at"
+        case graduatedAt = "graduated_at"
+        case masteredAt = "mastered_at"
     }
 }
 
@@ -213,24 +209,12 @@ struct LearningPreferencesPayload: Encodable {
 }
 
 struct ReviewSessionPayload: Codable, Hashable {
-    let id: String
-    let date: String
-    let initialTotalCount: Int
     let remainingCount: Int
-    let completedCount: Int
-    let leechedCount: Int
-    let isCheckInCompleted: Bool
     let cards: [ReviewCard]
     let nextAvailableAt: String?
 
     enum CodingKeys: String, CodingKey {
-        case id
-        case date
-        case initialTotalCount = "initial_total_count"
         case remainingCount = "remaining_count"
-        case completedCount = "completed_count"
-        case leechedCount = "leeched_count"
-        case isCheckInCompleted = "is_check_in_completed"
         case cards
         case nextAvailableAt = "next_available_at"
     }

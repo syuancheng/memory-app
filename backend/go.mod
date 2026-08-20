@@ -7,6 +7,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.5.5
 	github.com/modelcontextprotocol/go-sdk v1.0.0
+	github.com/open-spaced-repetition/go-fsrs/v3 v3.3.1
 	golang.org/x/crypto v0.17.0
 )
 

@@ -378,16 +378,6 @@ func (t *Tools) DeleteCard(ctx context.Context, _ *mcp.CallToolRequest, input De
 		return nil, DeleteCardOutput{}, errors.New("card not found")
 	}
 
-	// 纵深防御，同 REST 侧 deleteCard
-	_, err = t.pool.Exec(ctx, `
-		UPDATE review_states SET status = 'deleted'
-		WHERE card_id = $1
-		  AND EXISTS (SELECT 1 FROM cards WHERE id = $1 AND user_id = $2)
-	`, cardID, userID)
-	if err != nil {
-		return nil, DeleteCardOutput{}, err
-	}
-
 	return nil, DeleteCardOutput{Status: "deleted", CardID: cardID}, nil
 }
 
@@ -396,7 +386,7 @@ func (t *Tools) listSubjects(ctx context.Context, userID string) ([]model.Subjec
 			SELECT s.id::text, s.name,
 			       COUNT(DISTINCT c.id)::int AS card_count,
 			       COUNT(DISTINCT CASE
-			         WHEN rs.due_at <= now() AND rs.status NOT IN ('deleted', 'mastered') THEN c.id
+			         WHEN rs.mastered_at IS NULL AND rs.state IN (2, 3) AND rs.due_at <= now() THEN c.id
 			       END)::int AS due_count
 			FROM subjects s
 			LEFT JOIN sets st ON st.subject_id = s.id AND st.deleted_at IS NULL
@@ -427,7 +417,7 @@ func (t *Tools) listSets(ctx context.Context, userID string, subjectID string) (
 		SELECT st.id::text, st.subject_id::text, st.name,
 		       COUNT(DISTINCT c.id)::int AS card_count,
 		       COUNT(DISTINCT CASE
-		         WHEN rs.due_at <= now() AND rs.status NOT IN ('deleted', 'mastered') THEN c.id
+		         WHEN rs.mastered_at IS NULL AND rs.state IN (2, 3) AND rs.due_at <= now() THEN c.id
 		       END)::int AS due_count
 		FROM sets st
 		LEFT JOIN cards c ON c.set_id = st.id AND c.deleted_at IS NULL
