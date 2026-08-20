@@ -320,6 +320,13 @@ final class AppDataStore: ObservableObject {
         loadedAt[.summary] = nil
     }
 
+    /// 调用方（比如打卡）已经拿到服务端返回的最新 summary，直接写回缓存——
+    /// 避免为了不让缓存过期又白打一次 /me/summary。
+    func applyRefreshedSummary(_ summary: MeSummary) {
+        markLoaded(.summary)
+        self.summary = summary
+    }
+
     private func invalidateLibraryAndSummary() {
         generation += 1
         loadedAt.removeAll()

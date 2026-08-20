@@ -306,13 +306,6 @@ func (s *Service) DeleteAccount(ctx context.Context, userID string, code string)
 	if _, err = tx.Exec(ctx, `UPDATE cards SET deleted_at = now(), updated_at = now() WHERE user_id = $1 AND deleted_at IS NULL`, userID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `
-		UPDATE review_states
-		SET status = 'deleted'
-		WHERE card_id IN (SELECT id FROM cards WHERE user_id = $1)
-	`, userID); err != nil {
-		return err
-	}
 	if _, err = tx.Exec(ctx, `UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
 		return err
 	}

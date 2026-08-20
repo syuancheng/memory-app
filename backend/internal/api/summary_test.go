@@ -249,3 +249,94 @@ func TestNewLearnedTodayCountsOnlyGraduatedCards(t *testing.T) {
 		t.Errorf("new_learned_today = %d, want 1 (the still-struggling card must not count)", summary.NewLearnedToday)
 	}
 }
+
+// TestCheckInFailsWhenGoalNotComplete 校验打卡接口不信任客户端——只要还有到期的
+// 新卡/复习没做完，服务端重算 remaining 时会发现没完成，直接拒绝打卡。
+func TestCheckInFailsWhenGoalNotComplete(t *testing.T) {
+	ctx := context.Background()
+	handler, pool, svc := newTestEnv(t)
+	user := seedUser(t, ctx, pool, svc)
+
+	seedCardWithState(t, ctx, pool, user, fsrs.New, time.Now().UTC().Add(-time.Hour), nil, nil)
+
+	rec := call(t, handler, http.MethodPost, "/api/check-in", user.Token, nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /check-in with an unlearned due card: status %d, want 400. body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestCheckInSucceedsAndIsIdempotent 校验目标达成后打卡成功、写入 checked_in_today，
+// 且连续打卡天数从 0 变成 1；同一天重复打卡不应该把 streak 推到 2（幂等）。
+func TestCheckInSucceedsAndIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	handler, pool, svc := newTestEnv(t)
+	user := seedUser(t, ctx, pool, svc)
+	// seedUser 自带的卡没有 review_state（LEFT JOIN 为 NULL），不计入 new_count/
+	// review_due_count，所以这个新账号今天的目标本来就是「零任务」——天然满足打卡条件。
+	rec := call(t, handler, http.MethodPost, "/api/check-in", user.Token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /check-in: status %d body %s", rec.Code, rec.Body.String())
+	}
+	var summary meSummaryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &summary); err != nil {
+		t.Fatalf("decode summary: %v body=%s", err, rec.Body.String())
+	}
+	if !summary.CheckedInToday {
+		t.Errorf("checked_in_today = false, want true after checking in")
+	}
+	if summary.CurrentStreak != 1 {
+		t.Errorf("current_streak = %d, want 1 after the first check-in", summary.CurrentStreak)
+	}
+
+	rec = call(t, handler, http.MethodPost, "/api/check-in", user.Token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("second POST /check-in: status %d body %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &summary); err != nil {
+		t.Fatalf("decode summary: %v body=%s", err, rec.Body.String())
+	}
+	if summary.CurrentStreak != 1 {
+		t.Errorf("current_streak = %d, want 1 (checking in twice the same day must be idempotent)", summary.CurrentStreak)
+	}
+}
+
+// TestCurrentStreakCountsConsecutiveCheckInsBackFromToday 校验 streak 是从「本地
+// 今天」往回数连续打卡天数，中间断一天就必须停，不能跳过断档继续往回数。
+func TestCurrentStreakCountsConsecutiveCheckInsBackFromToday(t *testing.T) {
+	ctx := context.Background()
+	handler, pool, svc := newTestEnv(t)
+	user := seedUser(t, ctx, pool, svc)
+
+	// 跟 localDayRange 默认时区（tz_offset_minutes 缺省时是 UTC+8）算「本地今天」
+	// 的口径保持一致，直接在 SQL 里用同样的偏移量算出第 N 天前的本地日期。
+	insertCheckIn := func(daysAgo int) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO daily_check_ins (id, user_id, check_in_date)
+			VALUES ($1, $2, ((now() AT TIME ZONE 'UTC' + interval '8 hours')::date - $3::int))
+		`, uuid.NewString(), user.ID, daysAgo); err != nil {
+			t.Fatalf("seed check-in (days_ago=%d): %v", daysAgo, err)
+		}
+	}
+
+	// 昨天、前天连续打卡，今天还没打——streak 应该从昨天数起 = 2。
+	insertCheckIn(1)
+	insertCheckIn(2)
+	// 4 天前有一条，但 3 天前断了——不该被并进当前这段连续里。
+	insertCheckIn(4)
+
+	rec := call(t, handler, http.MethodGet, "/api/me/summary", user.Token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /me/summary: status %d body %s", rec.Code, rec.Body.String())
+	}
+	var summary meSummaryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &summary); err != nil {
+		t.Fatalf("decode summary: %v body=%s", err, rec.Body.String())
+	}
+	if summary.CheckedInToday {
+		t.Errorf("checked_in_today = true, want false (no check-in row seeded for today)")
+	}
+	if summary.CurrentStreak != 2 {
+		t.Errorf("current_streak = %d, want 2 (yesterday + the day before, stopped by the gap at 3 days ago)", summary.CurrentStreak)
+	}
+}

@@ -146,6 +146,21 @@ final class APIClient {
         return try await request(url: url)
     }
 
+    /// 打卡：服务端会用跟 /me/summary 一样的口径重新核实今天的新学/复习是否都已
+    /// 完成，不满足会返回错误——这里不做客户端预判，直接尝试，由调用方按钮的
+    /// 出现条件（newRemainingToday==0 && reviewRemainingToday==0）来保证正常情况下不会打空。
+    func checkIn() async throws -> MeSummary {
+        var components = URLComponents(url: baseURL.appendingPathComponent("check-in"), resolvingAgainstBaseURL: false)
+        let offsetMinutes = TimeZone.current.secondsFromGMT() / 60
+        components?.queryItems = [
+            URLQueryItem(name: "tz_offset_minutes", value: String(offsetMinutes))
+        ]
+        guard let url = components?.url else {
+            throw APIError.badURL
+        }
+        return try await request(url: url, method: "POST")
+    }
+
     func getLearningPreferences() async throws -> LearningPreferences {
         try await request(path: "/learning/preferences")
     }

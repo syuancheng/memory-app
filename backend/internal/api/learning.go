@@ -285,6 +285,21 @@ func normalizeLearningPreferences(prefs learningPreferencesResponse) learningPre
 	return prefs
 }
 
+// computeRemainingToday 算"今天还剩多少张新卡/复习"，公式跟迁移前 iOS
+// HomeView.swift 里 todayNewCardCount/todayReviewCount 完全一致，这次搬到
+// 后端做单一数据源：new_plus_review 模式下复习不设上限，新卡按 NewCardsPerDay
+// 减去今天已毕业的数量；fixed_total 模式下新卡和复习共享每日总量上限。
+func computeRemainingToday(prefs learningPreferencesResponse, newCount int, reviewDueCount int, newLearnedToday int) (newRemaining int, reviewRemaining int) {
+	if prefs.LimitMode == learningModeFixedTotal {
+		reviewRemaining = min(reviewDueCount, prefs.TotalCardsPerDay)
+		newRemaining = min(newCount, max(0, prefs.TotalCardsPerDay-reviewRemaining-newLearnedToday))
+		return newRemaining, reviewRemaining
+	}
+	reviewRemaining = reviewDueCount
+	newRemaining = min(newCount, max(0, prefs.NewCardsPerDay-newLearnedToday))
+	return newRemaining, reviewRemaining
+}
+
 func normalizeSessionMode(mode string) string {
 	switch strings.TrimSpace(mode) {
 	case sessionModeLearn:

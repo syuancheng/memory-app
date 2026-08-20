@@ -49,17 +49,20 @@ type reviewPreviewResponse struct {
 }
 
 type meSummaryResponse struct {
-	User            meUserResponse        `json:"user"`
-	TotalCards      int                   `json:"total_cards"`
-	DueCount        int                   `json:"due_count"`
-	NewCount        int                   `json:"new_count"`
-	ReviewDueCount  int                   `json:"review_due_count"`
-	NewLearnedToday int                   `json:"new_learned_today"`
-	MasteredCount   int                   `json:"mastered_count"`
-	ReviewedToday   int                   `json:"reviewed_today"`
-	TotalReviewed   int                   `json:"total_reviewed"`
-	CurrentStreak   int                   `json:"current_streak"`
-	RecentActivity  []activityDayResponse `json:"recent_activity"`
+	User                 meUserResponse        `json:"user"`
+	TotalCards           int                   `json:"total_cards"`
+	DueCount             int                   `json:"due_count"`
+	NewCount             int                   `json:"new_count"`
+	ReviewDueCount       int                   `json:"review_due_count"`
+	NewLearnedToday      int                   `json:"new_learned_today"`
+	NewRemainingToday    int                   `json:"new_remaining_today"`
+	ReviewRemainingToday int                   `json:"review_remaining_today"`
+	CheckedInToday       bool                  `json:"checked_in_today"`
+	MasteredCount        int                   `json:"mastered_count"`
+	ReviewedToday        int                   `json:"reviewed_today"`
+	TotalReviewed        int                   `json:"total_reviewed"`
+	CurrentStreak        int                   `json:"current_streak"`
+	RecentActivity       []activityDayResponse `json:"recent_activity"`
 }
 
 type meUserResponse struct {
@@ -75,8 +78,68 @@ type activityDayResponse struct {
 
 func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 	userID := currentUserID(r)
+	tzOffsetMinutes := timezoneOffsetMinutes(r.URL.Query().Get("tz_offset_minutes"))
+	summary, err := s.loadMeSummary(r.Context(), userID, tzOffsetMinutes)
+	if err == pgx.ErrNoRows {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+// checkIn 记录"今天打卡"。服务端用跟 /me/summary 完全一样的口径重新核实今天的
+// 新学/复习目标是否都已经完成——不信任客户端传来的状态，避免设备时钟/时区偏差
+// 或者绕过 UI 直接调接口就能打卡。同一个本地日重复打卡是幂等的。
+func (s *Server) checkIn(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := currentUserID(r)
+	tzOffsetMinutes := timezoneOffsetMinutes(r.URL.Query().Get("tz_offset_minutes"))
+
+	summary, err := s.loadMeSummary(ctx, userID, tzOffsetMinutes)
+	if err == pgx.ErrNoRows {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if summary.NewRemainingToday > 0 || summary.ReviewRemainingToday > 0 {
+		writeError(w, http.StatusBadRequest, "today's learning is not finished yet")
+		return
+	}
+
+	dayStart, _ := localDayRange(time.Now().UTC(), tzOffsetMinutes)
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO daily_check_ins (id, user_id, check_in_date)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id, check_in_date) DO NOTHING
+	`, uuid.NewString(), userID, dayStart.Format("2006-01-02"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// 打卡前后只有「打卡了没」「streak」两个字段会变——其余字段（今天的计数、
+	// 活动热力图）两次查询之间不可能变化，不用把整份 loadMeSummary 再跑一遍。
+	summary.CheckedInToday = true
+	summary.CurrentStreak, err = s.currentCheckInStreak(ctx, userID, dayStart)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+// loadMeSummary 是 /me/summary 和 /check-in 共用的一份查询逻辑，两个接口都需要
+// 「今天新学/复习各还剩多少」「今天打卡了没」「连续打卡天数」这一整套数据。
+func (s *Server) loadMeSummary(ctx context.Context, userID string, tzOffsetMinutes int) (meSummaryResponse, error) {
 	var summary meSummaryResponse
-	err := s.db.QueryRow(r.Context(), `
+	err := s.db.QueryRow(ctx, `
 		SELECT COALESCE(u.display_name, u.name, ''),
 		       COALESCE(u.primary_email, ac.email, u.email),
 		       COALESCE(ac.provider, 'email'),
@@ -117,31 +180,25 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 		&summary.ReviewDueCount,
 		&summary.MasteredCount,
 	)
-	if err == pgx.ErrNoRows {
-		writeError(w, http.StatusNotFound, "user not found")
-		return
-	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return meSummaryResponse{}, err
 	}
 
-	err = s.db.QueryRow(r.Context(), `
+	err = s.db.QueryRow(ctx, `
 		SELECT COUNT(*) FILTER (WHERE created_at::date = now()::date)::int,
 		       COUNT(*)::int
 		FROM review_events
 		WHERE user_id = $1
 	`, userID).Scan(&summary.ReviewedToday, &summary.TotalReviewed)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return meSummaryResponse{}, err
 	}
 
 	// 今天真正"毕业"的新卡数——直接看 graduated_at 落在用户本地的今天，而不是
 	// 数据库的 UTC 今天。graduated_at 只在一张卡第一次进入 Review/Relearning 时
 	// 写一次（见 scheduler.applyGraduation），之后即使又 lapse 也不会重复计数。
-	dayStart, dayEnd := localDayRange(time.Now().UTC(), timezoneOffsetMinutes(r.URL.Query().Get("tz_offset_minutes")))
-	err = s.db.QueryRow(r.Context(), `
+	dayStart, dayEnd := localDayRange(time.Now().UTC(), tzOffsetMinutes)
+	err = s.db.QueryRow(ctx, `
 		SELECT COUNT(*)::int
 		FROM review_states rs
 		JOIN cards c ON c.id = rs.card_id
@@ -149,15 +206,37 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 		  AND rs.graduated_at >= $2 AND rs.graduated_at < $3
 	`, userID, dayStart, dayEnd).Scan(&summary.NewLearnedToday)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return meSummaryResponse{}, err
+	}
+
+	prefs, err := s.loadLearningPreferences(ctx, userID)
+	if err != nil {
+		return meSummaryResponse{}, err
+	}
+	summary.NewRemainingToday, summary.ReviewRemainingToday = computeRemainingToday(
+		prefs, summary.NewCount, summary.ReviewDueCount, summary.NewLearnedToday,
+	)
+
+	checkInDate := dayStart.Format("2006-01-02")
+	err = s.db.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM daily_check_ins WHERE user_id = $1 AND check_in_date = $2)
+	`, userID, checkInDate).Scan(&summary.CheckedInToday)
+	if err != nil {
+		return meSummaryResponse{}, err
+	}
+
+	summary.CurrentStreak, err = s.currentCheckInStreak(ctx, userID, dayStart)
+	if err != nil {
+		return meSummaryResponse{}, err
 	}
 
 	// 窗口必须覆盖前端最长的展示跨度：
 	//   · Me 页热力图 16 周 = 112 天
 	//   · 成就页月历可回翻 12 个月
 	// 原来只给 28 天，导致热力图左侧 3/4 恒为空、月历翻页永远无数据。
-	rows, err := s.db.Query(r.Context(), `
+	// 这里展示的是"活动量"热力图，跟下面基于打卡记录的 current_streak 是两个
+	// 不同的概念，有意保留：有活动不代表打满了当天的卡。
+	rows, err := s.db.Query(ctx, `
 		SELECT day::date::text,
 		       COUNT(re.id)::int
 		FROM generate_series(current_date - interval '364 days', current_date, interval '1 day') AS day
@@ -167,8 +246,7 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 		ORDER BY day
 	`, userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return meSummaryResponse{}, err
 	}
 	defer rows.Close()
 
@@ -176,24 +254,53 @@ func (s *Server) getMeSummary(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var day activityDayResponse
 		if err := rows.Scan(&day.Date, &day.Count); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
+			return meSummaryResponse{}, err
 		}
 		summary.RecentActivity = append(summary.RecentActivity, day)
 	}
 	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return meSummaryResponse{}, err
 	}
 
-	for i := len(summary.RecentActivity) - 1; i >= 0; i-- {
-		if summary.RecentActivity[i].Count == 0 {
-			break
+	return summary, nil
+}
+
+// currentCheckInStreak 从"本地今天"往回走连续打卡天数：今天已打卡就从今天数起，
+// 没打卡就从昨天开始数，遇到第一个没打卡的日子就停。跟旧口径（当天有任意复习
+// 记录就算一天）不同——现在必须真的点了"打卡"才算数。
+func (s *Server) currentCheckInStreak(ctx context.Context, userID string, dayStart time.Time) (int, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT check_in_date::text
+		FROM daily_check_ins
+		WHERE user_id = $1 AND check_in_date >= $2
+	`, userID, dayStart.AddDate(0, 0, -400).Format("2006-01-02"))
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	checkedInDates := make(map[string]bool)
+	for rows.Next() {
+		var date string
+		if err := rows.Scan(&date); err != nil {
+			return 0, err
 		}
-		summary.CurrentStreak++
+		checkedInDates[date] = true
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
 	}
 
-	writeJSON(w, http.StatusOK, summary)
+	cursor := dayStart
+	if !checkedInDates[cursor.Format("2006-01-02")] {
+		cursor = cursor.AddDate(0, 0, -1)
+	}
+	streak := 0
+	for checkedInDates[cursor.Format("2006-01-02")] {
+		streak++
+		cursor = cursor.AddDate(0, 0, -1)
+	}
+	return streak, nil
 }
 
 func (s *Server) listSubjects(w http.ResponseWriter, r *http.Request) {

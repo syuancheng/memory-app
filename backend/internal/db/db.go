@@ -120,6 +120,14 @@ CREATE TABLE IF NOT EXISTS learning_preferences (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS daily_check_ins (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id),
+  check_in_date DATE NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, check_in_date)
+);
+
 CREATE TABLE IF NOT EXISTS auth_verification_codes (
   id UUID PRIMARY KEY,
   identifier_type TEXT NOT NULL,
@@ -204,6 +212,7 @@ CREATE INDEX IF NOT EXISTS idx_review_states_due ON review_states(due_at) WHERE 
 CREATE INDEX IF NOT EXISTS idx_review_states_active_due_card ON review_states(due_at, card_id) WHERE mastered_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_learning_preferences_user ON learning_preferences(user_id);
 CREATE INDEX IF NOT EXISTS idx_review_events_user_created_at ON review_events(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_daily_check_ins_user_date ON daily_check_ins(user_id, check_in_date DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_review_events_user_client_review_id
   ON review_events(user_id, client_review_id)
   WHERE client_review_id IS NOT NULL AND client_review_id <> '';

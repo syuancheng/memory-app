@@ -1,12 +1,25 @@
 import SwiftUI
 
+/// 今天的新学/复习目标刚好达成时弹出的里程碑提示——`justCompleted` 是这一刻
+/// 完成的那一边，`otherRemaining` 是另一边这时候还剩多少，决定按钮组合。
+private enum DailyGoalSide {
+    case learn
+    case review
+}
+
+private struct DailyGoalMilestone {
+    let justCompleted: DailyGoalSide
+    let otherRemaining: Int
+    var isFullyComplete: Bool { otherRemaining == 0 }
+}
+
 struct ReviewSessionView: View {
-    var mode: StudyMode = .review
     let subject: AppSubject
     let setIDs: [String]
     let onClose: () -> Void
     @EnvironmentObject private var dataStore: AppDataStore
     @EnvironmentObject private var session: AuthSessionStore
+    @State private var currentMode: StudyMode
     @State private var cards: [ReviewCard] = []
     @State private var reviewSession: ReviewSessionPayload?
     @State private var reviewStep = 0
@@ -15,7 +28,21 @@ struct ReviewSessionView: View {
     @State private var gradePreviews: [ReviewGradePreview] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var milestone: DailyGoalMilestone?
+    @State private var hasResolvedLearnMilestone = false
+    @State private var hasResolvedReviewMilestone = false
+    @State private var isCheckingIn = false
     @AppStorage("lastReviewSummary") private var lastReviewSummary = "No sessions yet"
+
+    /// mode 现在落在 @State 里（而不是普通 var）——「复习完成后去新学」需要在
+    /// 同一个 ReviewSessionView 里直接切换模式重新拉候选池，不用绕回
+    /// SubjectPickerView 重新选 subject/set。外部调用方式（含参数名 mode）不变。
+    init(mode: StudyMode = .review, subject: AppSubject, setIDs: [String], onClose: @escaping () -> Void) {
+        _currentMode = State(initialValue: mode)
+        self.subject = subject
+        self.setIDs = setIDs
+        self.onClose = onClose
+    }
 
     private var currentCard: ReviewCard? {
         cards.first
@@ -29,9 +56,11 @@ struct ReviewSessionView: View {
             if isLoading {
                 ProgressView()
                     .tint(AppColor.primary)
+            } else if let milestone {
+                milestoneView(milestone)
             } else if let currentCard {
                 ReviewCardView(
-                    mode: mode,
+                    mode: currentMode,
                     card: currentCard,
                     progressText: "\(reviewSession?.remainingCount ?? cards.count) left",
                     gradePreviews: gradePreviews,
@@ -77,13 +106,18 @@ struct ReviewSessionView: View {
         isLoading = true
         errorMessage = nil
         do {
-            let loadedSession = try await APIClient.shared.getReviewSession(subjectID: subject.id, setIDs: setIDs, mode: mode)
+            let loadedSession = try await APIClient.shared.getReviewSession(subjectID: subject.id, setIDs: setIDs, mode: currentMode)
             reviewSession = loadedSession
             cards = loadedSession.cards
             initialCardCount = loadedSession.cards.count
             completedCount = 0
             reviewStep += 1
             await loadGradePreviews()
+            // 万一今天的目标在打开这个会话之前就已经达成了（比如刚在另一个科目学完），
+            // 一进来就该看到里程碑提示，不用等提交一张卡才发现。
+            if let summary = try? await dataStore.refreshSummary(force: false) {
+                evaluateMilestone(summary: summary)
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -128,17 +162,22 @@ struct ReviewSessionView: View {
         do {
             _ = try await APIClient.shared.submitReview(
                 card: submittedCard,
-                mode: mode,
+                mode: currentMode,
                 rating: rating,
                 revealedCount: revealedCount
             )
             completedCount += 1
             dataStore.invalidateAfterReviewMutation(cardID: submittedCard.id)
-            let refreshedSession = try await APIClient.shared.getReviewSession(subjectID: subject.id, setIDs: setIDs, mode: mode)
+            // 显式同步刷新 summary（而不是 fire-and-forget 的 warmHome），因为下面
+            // 马上要用这次提交之后最新的 remaining 数字判断今天的目标是不是刚好
+            // 达成——跟拉候选池并发发出，避免在每张卡之间多等一整趟串行请求。
+            async let sessionTask = APIClient.shared.getReviewSession(subjectID: subject.id, setIDs: setIDs, mode: currentMode)
+            async let summaryTask: MeSummary? = try? await dataStore.refreshSummary(force: true)
+            let refreshedSession = try await sessionTask
             applyRefreshedSession(refreshedSession)
             await loadGradePreviews()
-            Task {
-                await dataStore.warmHome()
+            if let refreshedSummary = await summaryTask {
+                evaluateMilestone(summary: refreshedSummary)
             }
             if refreshedSession.cards.isEmpty && refreshedSession.nextAvailableAt == nil {
                 lastReviewSummary = "Completed \(completedCount) cards"
@@ -148,6 +187,40 @@ struct ReviewSessionView: View {
             errorMessage = error.localizedDescription
             return false
         }
+    }
+
+    /// 只在「当前模式对应的目标从大于 0 变成 0」那一刻弹一次；用户点过「继续」
+    /// 之后就不再为同一边重复打扰，但切到另一边、那边也刚好达成时仍然要弹。
+    private func evaluateMilestone(summary: MeSummary) {
+        if currentMode == .learn, summary.newRemainingToday == 0, !hasResolvedLearnMilestone {
+            hasResolvedLearnMilestone = true
+            milestone = DailyGoalMilestone(justCompleted: .learn, otherRemaining: summary.reviewRemainingToday)
+        } else if currentMode == .review, summary.reviewRemainingToday == 0, !hasResolvedReviewMilestone {
+            hasResolvedReviewMilestone = true
+            milestone = DailyGoalMilestone(justCompleted: .review, otherRemaining: summary.newRemainingToday)
+        }
+    }
+
+    private func switchMode(to newMode: StudyMode) {
+        currentMode = newMode
+        milestone = nil
+        Task {
+            await loadCards()
+        }
+    }
+
+    private func checkInFromMilestone() async {
+        guard !isCheckingIn else { return }
+        isCheckingIn = true
+        errorMessage = nil
+        do {
+            let updatedSummary = try await APIClient.shared.checkIn()
+            dataStore.applyRefreshedSummary(updatedSummary)
+            onClose()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isCheckingIn = false
     }
 
     private func deleteCurrentCard() async {
@@ -223,6 +296,90 @@ struct ReviewSessionView: View {
 
     private var completionMessage: String {
         "Completed \(completedCount) of \(initialCardCount) cards."
+    }
+
+    @ViewBuilder
+    private func milestoneView(_ milestone: DailyGoalMilestone) -> some View {
+        VStack(spacing: AppSpace.md) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(AppIcon.font(AppSpace.huge))
+                .foregroundStyle(AppColor.successFill)
+                .padding(.bottom, AppSpace.xs)
+
+            Text(milestoneTitle(milestone))
+                .appText(AppType.title1)
+
+            Text(milestoneMessage(milestone))
+                .appText(AppType.body, color: AppColor.textTertiary)
+                .multilineTextAlignment(.center)
+
+            VStack(spacing: AppSpace.sm) {
+                if milestone.isFullyComplete {
+                    AppButton(
+                        title: "Check in for today",
+                        variant: .primary,
+                        size: .large,
+                        fullWidth: true,
+                        isEnabled: !isCheckingIn,
+                        isLoading: isCheckingIn
+                    ) {
+                        Task {
+                            await checkInFromMilestone()
+                        }
+                    }
+                } else {
+                    AppButton(
+                        title: milestone.justCompleted == .learn ? "Go review" : "Go learn",
+                        variant: .primary,
+                        size: .large,
+                        fullWidth: true
+                    ) {
+                        switchMode(to: milestone.justCompleted == .learn ? .review : .learn)
+                    }
+                }
+
+                AppButton(
+                    title: milestone.justCompleted == .learn ? "Keep learning" : "Keep reviewing",
+                    variant: .secondary,
+                    size: .large,
+                    fullWidth: true
+                ) {
+                    self.milestone = nil
+                }
+
+                AppButton(
+                    title: "Done",
+                    variant: .ghost,
+                    size: .large,
+                    fullWidth: true,
+                    action: onClose
+                )
+            }
+            .padding(.top, AppSpace.sm)
+        }
+        .padding(.horizontal, AppLayout.screenMargin)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func milestoneTitle(_ milestone: DailyGoalMilestone) -> String {
+        if milestone.isFullyComplete {
+            return "All done for today"
+        }
+        return milestone.justCompleted == .learn ? "Today's new cards are done" : "Today's reviews are done"
+    }
+
+    private func milestoneMessage(_ milestone: DailyGoalMilestone) -> String {
+        if milestone.isFullyComplete {
+            return "You've finished today's new cards and reviews. Check in to keep your streak going."
+        }
+        switch milestone.justCompleted {
+        case .learn:
+            let count = milestone.otherRemaining
+            return "You still have \(count) review\(count == 1 ? "" : "s") left today. Keep learning, or go finish your reviews."
+        case .review:
+            let count = milestone.otherRemaining
+            return "You still have \(count) new card\(count == 1 ? "" : "s") to learn today. Keep reviewing, or go learn something new."
+        }
     }
 
     private func waitingView() -> some View {

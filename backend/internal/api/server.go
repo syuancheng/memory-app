@@ -49,6 +49,7 @@ func NewServer(pool *pgxpool.Pool, authService *auth.Service) http.Handler {
 			r.Delete("/account", server.deleteAccount)
 
 			r.Get("/me/summary", server.getMeSummary)
+			r.Post("/check-in", server.checkIn)
 			r.Get("/learning/preferences", server.getLearningPreferences)
 			r.Patch("/learning/preferences", server.updateLearningPreferences)
 

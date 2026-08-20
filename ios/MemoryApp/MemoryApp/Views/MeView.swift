@@ -246,8 +246,10 @@ private struct MonthlyAchievementsPage: View {
         makeActivityRecords(from: summary)
     }
 
+    /// 直接读后端算好的连续打卡天数，不再本地按活动记录重算——现在 streak 的
+    /// 口径是"有没有打卡"，不是"有没有活动"，两者不再等价，本地无法重新推导。
     private var currentStreak: Int {
-        streakCount(records: records)
+        summary?.currentStreak ?? 0
     }
 
     private var totalLearningDays: Int {
@@ -1962,23 +1964,6 @@ private func heatmapWeeks(records: [DailyLearningRecord], weekCount: Int) -> [[H
             )
         }
     }
-}
-
-private func streakCount(records: [DailyLearningRecord]) -> Int {
-    let calendar = Calendar.current
-    let activeDays = Set(records.filter(\.hasLearning).map(\.dateKey))
-    var cursor = calendar.startOfDay(for: Date())
-    var count = 0
-
-    while activeDays.contains(dayKey(for: cursor)) {
-        count += 1
-        guard let previousDay = calendar.date(byAdding: .day, value: -1, to: cursor) else {
-            break
-        }
-        cursor = previousDay
-    }
-
-    return count
 }
 
 private func monthTitle(for date: Date) -> String {

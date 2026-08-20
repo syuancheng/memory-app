@@ -93,6 +93,7 @@ func seedUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svc *auth.S
 	}
 
 	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM daily_check_ins WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM review_events WHERE user_id = $1`, userID)
 		_, _ = pool.Exec(ctx, `DELETE FROM review_states WHERE card_id = $1`, cardID)
 		_, _ = pool.Exec(ctx, `DELETE FROM cards WHERE user_id = $1`, userID)

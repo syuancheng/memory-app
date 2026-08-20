@@ -258,6 +258,15 @@ struct MeSummary: Codable {
     let newCount: Int
     let reviewDueCount: Int
     let newLearnedToday: Int
+    /// 今天还剩多少张新卡要学——已经把每日目标、已毕业数量都算进去了，
+    /// 跟后端 computeRemainingToday 是同一份口径，客户端不再自己重算。
+    let newRemainingToday: Int
+    /// 今天还剩多少张复习——new_plus_review 模式下等于 reviewDueCount，
+    /// fixed_total 模式下会被每日总量上限截断。
+    let reviewRemainingToday: Int
+    /// 今天是否已经打卡；只有 newRemainingToday==0 && reviewRemainingToday==0
+    /// 时后端才会接受打卡请求。
+    let checkedInToday: Bool
     let masteredCount: Int
     let reviewedToday: Int
     let totalReviewed: Int
@@ -271,6 +280,9 @@ struct MeSummary: Codable {
         case newCount = "new_count"
         case reviewDueCount = "review_due_count"
         case newLearnedToday = "new_learned_today"
+        case newRemainingToday = "new_remaining_today"
+        case reviewRemainingToday = "review_remaining_today"
+        case checkedInToday = "checked_in_today"
         case masteredCount = "mastered_count"
         case reviewedToday = "reviewed_today"
         case totalReviewed = "total_reviewed"
@@ -280,7 +292,8 @@ struct MeSummary: Codable {
 
     // 服务端还没上线 new_count/review_due_count 之前，旧响应里没有这两个键——
     // 用 dueCount（旧的「新+复习」合并口径）兜底 reviewDueCount，newCount 兜 0，
-    // 保持和这次拆分之前完全一样的行为，而不是直接解码失败。
+    // 保持和这次拆分之前完全一样的行为，而不是直接解码失败。同理，打卡功能上线
+    // 之前的旧响应也没有 remaining/checked_in 这三个键，兜底成「无剩余、未打卡」。
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         user = try c.decode(MeUser.self, forKey: .user)
@@ -289,6 +302,9 @@ struct MeSummary: Codable {
         newCount = try c.decodeIfPresent(Int.self, forKey: .newCount) ?? 0
         reviewDueCount = try c.decodeIfPresent(Int.self, forKey: .reviewDueCount) ?? dueCount
         newLearnedToday = try c.decodeIfPresent(Int.self, forKey: .newLearnedToday) ?? 0
+        newRemainingToday = try c.decodeIfPresent(Int.self, forKey: .newRemainingToday) ?? 0
+        reviewRemainingToday = try c.decodeIfPresent(Int.self, forKey: .reviewRemainingToday) ?? 0
+        checkedInToday = try c.decodeIfPresent(Bool.self, forKey: .checkedInToday) ?? false
         masteredCount = try c.decode(Int.self, forKey: .masteredCount)
         reviewedToday = try c.decode(Int.self, forKey: .reviewedToday)
         totalReviewed = try c.decode(Int.self, forKey: .totalReviewed)

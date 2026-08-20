@@ -20,7 +20,7 @@ struct HomeView: View {
     @State private var errorMessage: String?
     @State private var headerHeight: CGFloat = 0
     @State private var quoteSentence: String?
-    @State private var learningPreferences: LearningPreferences?
+    @State private var isCheckingIn = false
 
     /// 黄金分割比例：按钮区顶部落在屏幕高度的 61.8% 处，比正中间更贴近单手热区。
     private let goldenRatio: CGFloat = 0.618
@@ -35,31 +35,21 @@ struct HomeView: View {
         summary?.newCount ?? 0
     }
 
-    /// 今天真正会出现在 Review session 里的卡数——new_plus_review 模式下复习不设上限，
-    /// fixed_total 模式下和新卡共享每日总量上限。跟后端 buildDailyQueue 的口径保持一致。
+    /// 今天还剩多少张复习/新卡——后端 /me/summary 已经把每日目标、fixed_total 上限、
+    /// 今天已毕业的数量都算进去了，跟 iOS 之前自己重算的公式是同一份口径
+    /// （computeRemainingToday），这里直接读，不再本地重算。
     private var todayReviewCount: Int {
-        guard let prefs = learningPreferences, prefs.limitMode == .fixedTotal else {
-            return reviewDueCount
-        }
-        return min(reviewDueCount, prefs.totalCardsPerDay)
+        summary?.reviewRemainingToday ?? reviewDueCount
     }
 
-    /// 今天 Learn 按钮上显示的"还剩多少张新卡"——已经学完（真正毕业进入复习计划，
-    /// 不含被 leech 掉的）的部分会被扣掉，不是账号里全部新卡的总数。学习过程本身不设
-    /// 硬性拦截，这个数字纯展示用，Home 每次重新打开/从 session 返回都会刷新。
     private var todayNewCardCount: Int {
-        guard let prefs = learningPreferences else {
-            return newCardCount
-        }
-        let learnedToday = summary?.newLearnedToday ?? 0
-        switch prefs.limitMode {
-        case .newPlusReview:
-            let remaining = max(0, prefs.newCardsPerDay - learnedToday)
-            return min(newCardCount, remaining)
-        case .fixedTotal:
-            let remaining = max(0, prefs.totalCardsPerDay - todayReviewCount - learnedToday)
-            return min(newCardCount, remaining)
-        }
+        summary?.newRemainingToday ?? newCardCount
+    }
+
+    /// 今天的新学 + 复习是否都已经完成——只有这时才允许打卡。
+    private var isDailyGoalComplete: Bool {
+        guard let summary else { return false }
+        return summary.newRemainingToday == 0 && summary.reviewRemainingToday == 0
     }
 
     private var reviewReminderTitle: String {
@@ -92,6 +82,7 @@ struct HomeView: View {
 
                         VStack(alignment: .leading, spacing: AppLayout.cardGap) {
                             startLearningSection
+                            dailyCheckInSection
                             loadState
                         }
                     }
@@ -122,9 +113,6 @@ struct HomeView: View {
         .task {
             await loadQuoteSentence()
         }
-        .task {
-            await loadLearningPreferences()
-        }
         .onReceive(dataStore.$subjects) { loadedSubjects in
             if !loadedSubjects.isEmpty {
                 subjects = loadedSubjects
@@ -139,7 +127,6 @@ struct HomeView: View {
             if mode == nil {
                 Task {
                     await loadHomeData(force: true)
-                    await loadLearningPreferences()
                 }
             }
         }
@@ -220,6 +207,35 @@ struct HomeView: View {
         .accessibilityElement(children: .contain)
     }
 
+    /// 只有今天的新学 + 复习都完成才出现——没达成之前不占地方，避免误导。
+    @ViewBuilder
+    private var dailyCheckInSection: some View {
+        if isDailyGoalComplete, let summary {
+            if summary.checkedInToday {
+                HStack(spacing: AppSpace.sm) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundStyle(AppColor.successFill)
+                    Text(summary.currentStreak == 1 ? "Checked in today · 1 day streak" : "Checked in today · \(summary.currentStreak) day streak")
+                        .appText(AppType.label, color: AppColor.textSecondary)
+                }
+                .padding(.vertical, AppSpace.xs)
+            } else {
+                AppButton(
+                    title: "Check in for today",
+                    variant: .primary,
+                    size: .large,
+                    fullWidth: true,
+                    isEnabled: !isCheckingIn,
+                    isLoading: isCheckingIn
+                ) {
+                    Task {
+                        await performCheckIn()
+                    }
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var loadState: some View {
         if isLoading {
@@ -273,8 +289,20 @@ struct HomeView: View {
         }
     }
 
-    private func loadLearningPreferences() async {
-        learningPreferences = try? await APIClient.shared.getLearningPreferences()
+    private func performCheckIn() async {
+        guard !isCheckingIn else { return }
+        isCheckingIn = true
+        errorMessage = nil
+        do {
+            let updatedSummary = try await APIClient.shared.checkIn()
+            summary = updatedSummary
+            // 不写回 dataStore 的话，30 秒缓存窗口内切到 Me 页还会看到打卡前的
+            // streak——本地 summary 更新只影响 Home 自己这份状态。
+            dataStore.applyRefreshedSummary(updatedSummary)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isCheckingIn = false
     }
 }
 
