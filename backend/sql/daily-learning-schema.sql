@@ -6,7 +6,7 @@ ADD COLUMN IF NOT EXISTS has_graduated BOOLEAN NOT NULL DEFAULT false;
 
 UPDATE review_states
 SET has_graduated = true
-WHERE (status = 'review' OR lapse_count > 0) AND has_graduated = false;
+WHERE (state = 'review' OR lapse_count > 0) AND has_graduated = false;
 
 CREATE TABLE IF NOT EXISTS learning_preferences (
   user_id UUID PRIMARY KEY REFERENCES users(id),
