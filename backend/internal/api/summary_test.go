@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"memory-app/backend/internal/model"
 )
 
 // seedCardWithStatus 直接建一张卡 + 对应的 review_state，绕开调度器，
@@ -151,6 +153,54 @@ func TestUngraduatedCardStaysInLearnNotReview(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("ungraduated card %s should still show up in a Learn session", cardID)
+	}
+}
+
+// TestSubjectAndSetDueCountsExcludeUngraduatedCards 是 SetPickerView/SubjectPickerView
+// 那个"进 Review 还是显示一堆没毕业的新卡"问题的回归测试：/api/subjects、/api/sets、
+// /api/subjects/{id}/sets 的 due_count 必须跟 querySessionCandidateIDs 用同一套口径，
+// 不能只看 status/due_at 不看 has_graduated。
+func TestSubjectAndSetDueCountsExcludeUngraduatedCards(t *testing.T) {
+	ctx := context.Background()
+	handler, pool, svc := newTestEnv(t)
+	user := seedUser(t, ctx, pool, svc)
+
+	now := time.Now().UTC()
+	// 从没毕业过、只是被 Again 打回 learning 且冷却已过——不该算进 due_count。
+	seedCardWithStatus(t, ctx, pool, user, "learning", now.Add(-time.Minute), false)
+	// 真正毕业过又 lapse 回来的——应该算进 due_count。
+	seedCardWithStatus(t, ctx, pool, user, "learning", now.Add(-time.Minute), true)
+
+	assertDueCount := func(path string) {
+		t.Helper()
+		rec := call(t, handler, http.MethodGet, path, user.Token, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s: status %d body %s", path, rec.Code, rec.Body.String())
+		}
+		var subjects []model.Subject
+		if err := json.Unmarshal(rec.Body.Bytes(), &subjects); err != nil {
+			t.Fatalf("decode %s: %v body=%s", path, err, rec.Body.String())
+		}
+		for _, subject := range subjects {
+			if subject.ID == user.SubjectID && subject.DueCount != 1 {
+				t.Errorf("%s: subject due_count = %d, want 1 (only the graduated card)", path, subject.DueCount)
+			}
+		}
+	}
+	assertDueCount("/api/subjects")
+
+	setsRec := call(t, handler, http.MethodGet, "/api/sets", user.Token, nil)
+	if setsRec.Code != http.StatusOK {
+		t.Fatalf("GET /api/sets: status %d body %s", setsRec.Code, setsRec.Body.String())
+	}
+	var sets []model.Set
+	if err := json.Unmarshal(setsRec.Body.Bytes(), &sets); err != nil {
+		t.Fatalf("decode /api/sets: %v body=%s", err, setsRec.Body.String())
+	}
+	for _, set := range sets {
+		if set.ID == user.SetID && set.DueCount != 1 {
+			t.Errorf("/api/sets: set due_count = %d, want 1 (only the graduated card)", set.DueCount)
+		}
 	}
 }
 

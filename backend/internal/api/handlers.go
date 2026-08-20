@@ -197,7 +197,8 @@ func (s *Server) listSubjects(w http.ResponseWriter, r *http.Request) {
 		SELECT s.id::text, s.name,
 		       COUNT(DISTINCT c.id)::int AS card_count,
 		       COUNT(DISTINCT CASE
-		         WHEN rs.due_at <= now() AND rs.status NOT IN ('deleted', 'mastered') THEN c.id
+		         WHEN (rs.status = 'review' OR (rs.status = 'learning' AND rs.has_graduated = true))
+		           AND rs.due_at <= now() THEN c.id
 		       END)::int AS due_count
 		FROM subjects s
 		LEFT JOIN sets st ON st.subject_id = s.id AND st.deleted_at IS NULL
@@ -231,7 +232,8 @@ func (s *Server) listAllSets(w http.ResponseWriter, r *http.Request) {
 		SELECT st.id::text, st.subject_id::text, st.name,
 		       COUNT(DISTINCT c.id)::int AS card_count,
 		       COUNT(DISTINCT CASE
-		         WHEN rs.due_at <= now() AND rs.status NOT IN ('deleted', 'mastered') THEN c.id
+		         WHEN (rs.status = 'review' OR (rs.status = 'learning' AND rs.has_graduated = true))
+		           AND rs.due_at <= now() THEN c.id
 		       END)::int AS due_count
 		FROM sets st
 		LEFT JOIN cards c ON c.set_id = st.id AND c.deleted_at IS NULL
@@ -392,7 +394,8 @@ func (s *Server) listSets(w http.ResponseWriter, r *http.Request) {
 		SELECT st.id::text, st.subject_id::text, st.name,
 		       COUNT(DISTINCT c.id)::int AS card_count,
 		       COUNT(DISTINCT CASE
-		         WHEN rs.due_at <= now() AND rs.status NOT IN ('deleted', 'mastered') THEN c.id
+		         WHEN (rs.status = 'review' OR (rs.status = 'learning' AND rs.has_graduated = true))
+		           AND rs.due_at <= now() THEN c.id
 		       END)::int AS due_count
 		FROM sets st
 		LEFT JOIN cards c ON c.set_id = st.id AND c.deleted_at IS NULL
