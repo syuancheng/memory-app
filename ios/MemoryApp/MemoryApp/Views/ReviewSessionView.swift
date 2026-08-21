@@ -160,32 +160,78 @@ struct ReviewSessionView: View {
 
         errorMessage = nil
         do {
-            _ = try await APIClient.shared.submitReview(
+            let updatedState = try await APIClient.shared.submitReview(
                 card: submittedCard,
                 mode: currentMode,
                 rating: rating,
                 revealedCount: revealedCount
             )
-            completedCount += 1
             dataStore.invalidateAfterReviewMutation(cardID: submittedCard.id)
-            // 显式同步刷新 summary（而不是 fire-and-forget 的 warmHome），因为下面
-            // 马上要用这次提交之后最新的 remaining 数字判断今天的目标是不是刚好
-            // 达成——跟拉候选池并发发出，避免在每张卡之间多等一整趟串行请求。
+
+            if currentMode == .learn {
+                try await handleLearnSubmit(submittedCard: submittedCard, updatedState: updatedState)
+            } else {
+                try await handleReviewSubmit()
+            }
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Learn 模式提交后的本地循环：不再整包刷新会话——评分返回的 `ReviewState.state`
+    /// 直接告诉我们这张卡毕不毕业，毕业了就从今天这批里拿掉、没毕业就塞回队列末尾
+    /// 立刻可以再出现，不用等 FSRS 给的短期 due_at，也不用等一趟网络往返。只有当
+    /// 本地队列真正空了，才发一次请求去确认没有别的到期内容、拿权威 summary 判定
+    /// 今天的新卡目标是不是刚好达成。
+    private func handleLearnSubmit(submittedCard: ReviewCard, updatedState: ReviewState) async throws {
+        let graduated = updatedState.state == 2 || updatedState.state == 3 // Review / Relearning
+        cards.removeFirst()
+        if graduated {
+            completedCount += 1
+        } else {
+            cards.append(submittedCard)
+        }
+        reviewStep += 1
+        await loadGradePreviews()
+
+        if cards.isEmpty {
             async let sessionTask = APIClient.shared.getReviewSession(subjectID: subject.id, setIDs: setIDs, mode: currentMode)
             async let summaryTask: MeSummary? = try? await dataStore.refreshSummary(force: true)
             let refreshedSession = try await sessionTask
             applyRefreshedSession(refreshedSession)
-            await loadGradePreviews()
             if let refreshedSummary = await summaryTask {
                 evaluateMilestone(summary: refreshedSummary)
             }
             if refreshedSession.cards.isEmpty && refreshedSession.nextAvailableAt == nil {
                 lastReviewSummary = "Completed \(completedCount) cards"
             }
-            return true
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
+        } else {
+            // 队列还没清空，今天的目标不可能刚好达成——只在后台把 summary/首页角标
+            // 刷新一下，不阻塞下一张卡的展示。
+            Task {
+                _ = try? await dataStore.refreshSummary(force: true)
+            }
+        }
+    }
+
+    /// Review 模式维持原来的行为：每次提交后整包重新拉取候选池。
+    private func handleReviewSubmit() async throws {
+        completedCount += 1
+        // 显式同步刷新 summary（而不是 fire-and-forget 的 warmHome），因为下面
+        // 马上要用这次提交之后最新的 remaining 数字判断今天的目标是不是刚好
+        // 达成——跟拉候选池并发发出，避免在每张卡之间多等一整趟串行请求。
+        async let sessionTask = APIClient.shared.getReviewSession(subjectID: subject.id, setIDs: setIDs, mode: currentMode)
+        async let summaryTask: MeSummary? = try? await dataStore.refreshSummary(force: true)
+        let refreshedSession = try await sessionTask
+        applyRefreshedSession(refreshedSession)
+        await loadGradePreviews()
+        if let refreshedSummary = await summaryTask {
+            evaluateMilestone(summary: refreshedSummary)
+        }
+        if refreshedSession.cards.isEmpty && refreshedSession.nextAvailableAt == nil {
+            lastReviewSummary = "Completed \(completedCount) cards"
         }
     }
 

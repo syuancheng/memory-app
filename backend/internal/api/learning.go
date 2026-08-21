@@ -123,19 +123,42 @@ func (s *Server) loadLearningPreferences(ctx context.Context, userID string) (le
 	return normalizeLearningPreferences(prefs), nil
 }
 
-// getReviewSession 现查 review_states，不再有"今天的队列快照"：Learn 拿
-// state IN (New, Learning) 的候选，Review 拿 state IN (Review, Relearning) 的候选，
-// 都要求 due_at <= now()。学习偏好（每日目标张数）不再在这里截断候选池，只是
-// Home 页展示"今天还剩多少"用的软目标。
+// getReviewSession 现查 review_states，不再有"今天的队列快照"：Review 拿
+// state IN (Review, Relearning) 里 due_at 到期的候选。Learn 拿 state IN (New,
+// Learning) 的候选，但 New 卡受 NewCardsPerDay 每日上限约束（按今天已经引入了
+// 几张不同的卡来算，见 queryLearnCandidateIDs），已经在学的 Learning 卡则不再
+// 卡 due_at，只要是今天这批里的就能立刻再出现——不用等 FSRS 给的短期间隔。
 func (s *Server) getReviewSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := currentUserID(r)
 	subjectID := r.URL.Query().Get("subject_id")
 	setIDs := splitCSV(r.URL.Query().Get("set_ids"))
 	sessionMode := normalizeSessionMode(r.URL.Query().Get("mode"))
+	tzOffsetMinutes := timezoneOffsetMinutes(r.URL.Query().Get("tz_offset_minutes"))
 	now := time.Now().UTC()
 
-	ids, nextAvailableAt, err := queryReviewCandidateIDs(ctx, s.db, userID, subjectID, setIDs, sessionMode, now, sessionCandidateLimit)
+	var newCardsPerDay int
+	if sessionMode == sessionModeLearn {
+		prefs, err := s.loadLearningPreferences(ctx, userID)
+		if err != nil {
+			writeError(w, 500, err.Error())
+			return
+		}
+		newCardsPerDay = prefs.NewCardsPerDay
+	}
+	dayStart, dayEnd := localDayRange(now, tzOffsetMinutes)
+
+	ids, nextAvailableAt, err := queryReviewCandidateIDs(ctx, s.db, reviewCandidateQuery{
+		UserID:         userID,
+		SubjectID:      subjectID,
+		SetIDs:         setIDs,
+		SessionMode:    sessionMode,
+		Now:            now,
+		Limit:          sessionCandidateLimit,
+		NewCardsPerDay: newCardsPerDay,
+		DayStart:       dayStart,
+		DayEnd:         dayEnd,
+	})
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -152,29 +175,43 @@ func (s *Server) getReviewSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// queryReviewCandidateIDs 按 subject/set 范围 + Learn/Review 对应的 state 分组，
-// 取 due_at 已到期的卡，按 due_at 升序给一批（上限 limit）。如果一张都没到期，
-// 顺便查一下"这个范围里最早还要多久到期"，给前端一个"稍后再来"的提示。
-func queryReviewCandidateIDs(ctx context.Context, pool *pgxpool.Pool, userID string, subjectID string, setIDs []string, sessionMode string, now time.Time, limit int) ([]string, *time.Time, error) {
+type reviewCandidateQuery struct {
+	UserID         string
+	SubjectID      string
+	SetIDs         []string
+	SessionMode    string
+	Now            time.Time
+	Limit          int
+	NewCardsPerDay int       // 只有 SessionMode == sessionModeLearn 时才会用到
+	DayStart       time.Time // 同上，用户本地"今天"的区间，用来算今天引入了几张新卡
+	DayEnd         time.Time
+}
+
+// queryReviewCandidateIDs 按 subject/set 范围 + Learn/Review 对应的 state 分组取
+// 候选卡。Review 模式沿用老逻辑：只要 due_at 到期就按 due_at 升序给一批。Learn
+// 模式交给 queryLearnCandidateIDs，因为它要额外考虑每日新卡上限和"今天引入的
+// 卡不等 due_at"。如果一张都没到期，顺便查一下这个范围里最早还要多久到期，给
+// 前端一个"稍后再来"的提示。
+func queryReviewCandidateIDs(ctx context.Context, pool *pgxpool.Pool, q reviewCandidateQuery) ([]string, *time.Time, error) {
 	stateFilter := "rs.state IN (0, 1)"
-	if sessionMode == sessionModeReview {
+	if q.SessionMode == sessionModeReview {
 		stateFilter = "rs.state IN (2, 3)"
 	}
 
-	args := []interface{}{userID}
+	args := []interface{}{q.UserID}
 	conditions := []string{
 		"c.user_id = $1", "c.deleted_at IS NULL", "s.deleted_at IS NULL", "st.deleted_at IS NULL",
 		"rs.mastered_at IS NULL", stateFilter,
 	}
 	argIndex := 2
-	if subjectID != "" {
+	if q.SubjectID != "" {
 		conditions = append(conditions, fmt.Sprintf("c.subject_id = $%d", argIndex))
-		args = append(args, subjectID)
+		args = append(args, q.SubjectID)
 		argIndex++
 	}
-	if len(setIDs) > 0 {
-		placeholders := make([]string, 0, len(setIDs))
-		for _, setID := range setIDs {
+	if len(q.SetIDs) > 0 {
+		placeholders := make([]string, 0, len(q.SetIDs))
+		for _, setID := range q.SetIDs {
 			placeholders = append(placeholders, fmt.Sprintf("$%d", argIndex))
 			args = append(args, setID)
 			argIndex++
@@ -183,39 +220,21 @@ func queryReviewCandidateIDs(ctx context.Context, pool *pgxpool.Pool, userID str
 	}
 	whereClause := strings.Join(conditions, " AND ")
 
+	limit := q.Limit
 	if limit <= 0 {
 		limit = sessionCandidateLimit
 	}
-	dueArgs := append(append([]interface{}{}, args...), now, limit)
-	dueQuery := fmt.Sprintf(`
-		SELECT c.id::text
-		FROM cards c
-		JOIN sets st ON st.id = c.set_id
-		JOIN subjects s ON s.id = c.subject_id
-		JOIN review_states rs ON rs.card_id = c.id
-		WHERE %s AND rs.due_at <= $%d
-		ORDER BY rs.due_at ASC, c.created_at ASC
-		LIMIT $%d
-	`, whereClause, argIndex, argIndex+1)
 
-	rows, err := pool.Query(ctx, dueQuery, dueArgs...)
+	var ids []string
+	var err error
+	if q.SessionMode == sessionModeLearn {
+		ids, err = queryLearnCandidateIDs(ctx, pool, whereClause, args, argIndex, q, limit)
+	} else {
+		ids, err = queryDueCandidateIDs(ctx, pool, whereClause, args, argIndex, q.Now, limit)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
-	ids := []string{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, nil, err
-	}
-	rows.Close()
 
 	if len(ids) > 0 {
 		return ids, nil, nil
@@ -233,10 +252,141 @@ func queryReviewCandidateIDs(ctx context.Context, pool *pgxpool.Pool, userID str
 	if err := pool.QueryRow(ctx, nextQuery, args...).Scan(&nextAvailableAt); err != nil && err != pgx.ErrNoRows {
 		return nil, nil, err
 	}
-	if nextAvailableAt != nil && !nextAvailableAt.After(now) {
+	if nextAvailableAt != nil && !nextAvailableAt.After(q.Now) {
 		nextAvailableAt = nil
 	}
 	return ids, nextAvailableAt, nil
+}
+
+// queryDueCandidateIDs 是 Review 模式（以及历史上 Learn 模式）用的老查询：单纯
+// 按 due_at 到期与否给一批，按 due_at、created_at 升序排。
+func queryDueCandidateIDs(ctx context.Context, pool *pgxpool.Pool, whereClause string, baseArgs []interface{}, argIndex int, now time.Time, limit int) ([]string, error) {
+	args := append(append([]interface{}{}, baseArgs...), now, limit)
+	query := fmt.Sprintf(`
+		SELECT c.id::text
+		FROM cards c
+		JOIN sets st ON st.id = c.set_id
+		JOIN subjects s ON s.id = c.subject_id
+		JOIN review_states rs ON rs.card_id = c.id
+		WHERE %s AND rs.due_at <= $%d
+		ORDER BY rs.due_at ASC, c.created_at ASC
+		LIMIT $%d
+	`, whereClause, argIndex, argIndex+1)
+	return scanCardIDs(ctx, pool, query, args)
+}
+
+// queryLearnCandidateIDs 把 Learn 候选拆成两块合并：
+//   - in_progress：state=1（已经在学）的卡，只要 due_at 到期，或者它是今天已经
+//     引入的那一批，就算数——这一步让 Again/Hard 之后不用等 FSRS 给的短期
+//     due_at，立刻能在同一次学习里再出现。
+//   - fresh：state=0（从没学过）的卡，只按今天已经引入了几张不同的卡来限流：
+//     LIMIT max(0, NewCardsPerDay - 今天已引入数)。不管前面的卡反复 Again 多
+//     少次，这个 LIMIT 只看"今天开始学的不同卡片数"，不会因为某张卡毕业腾出
+//     名额就多塞一张新卡进来。
+//
+// "今天引入"完全靠 review_events 派生（loadCardsIntroducedToday），不落地任何
+// 会话状态，所以哪怕 App 被杀掉重开、服务重启，也能照样正确重建。
+func queryLearnCandidateIDs(ctx context.Context, pool *pgxpool.Pool, whereClause string, baseArgs []interface{}, argIndex int, q reviewCandidateQuery, limit int) ([]string, error) {
+	introducedTodayIDs, err := loadCardsIntroducedToday(ctx, pool, q.UserID, q.DayStart, q.DayEnd)
+	if err != nil {
+		return nil, err
+	}
+	remainingNewSlots := q.NewCardsPerDay - len(introducedTodayIDs)
+	if remainingNewSlots < 0 {
+		remainingNewSlots = 0
+	}
+
+	args := append([]interface{}{}, baseArgs...)
+
+	nowIndex := argIndex
+	args = append(args, q.Now)
+	argIndex++
+
+	inProgressCondition := fmt.Sprintf("rs.due_at <= $%d", nowIndex)
+	if len(introducedTodayIDs) > 0 {
+		placeholders := make([]string, 0, len(introducedTodayIDs))
+		for _, id := range introducedTodayIDs {
+			placeholders = append(placeholders, fmt.Sprintf("$%d", argIndex))
+			args = append(args, id)
+			argIndex++
+		}
+		inProgressCondition = fmt.Sprintf("(%s OR c.id IN (%s))", inProgressCondition, strings.Join(placeholders, ","))
+	}
+
+	freshNowIndex := argIndex
+	args = append(args, q.Now)
+	argIndex++
+
+	freshLimitIndex := argIndex
+	args = append(args, remainingNewSlots)
+	argIndex++
+
+	overallLimitIndex := argIndex
+	args = append(args, limit)
+	argIndex++
+
+	query := fmt.Sprintf(`
+		WITH in_progress AS (
+			SELECT c.id::text AS card_id, rs.due_at AS due_at, c.created_at AS created_at
+			FROM cards c
+			JOIN sets st ON st.id = c.set_id
+			JOIN subjects s ON s.id = c.subject_id
+			JOIN review_states rs ON rs.card_id = c.id
+			WHERE %s AND rs.state = 1 AND %s
+		),
+		fresh AS (
+			SELECT c.id::text AS card_id, rs.due_at AS due_at, c.created_at AS created_at
+			FROM cards c
+			JOIN sets st ON st.id = c.set_id
+			JOIN subjects s ON s.id = c.subject_id
+			JOIN review_states rs ON rs.card_id = c.id
+			WHERE %s AND rs.state = 0 AND rs.due_at <= $%d
+			ORDER BY c.created_at ASC
+			LIMIT $%d
+		),
+		combined AS (
+			SELECT card_id, due_at, created_at FROM in_progress
+			UNION ALL
+			SELECT card_id, due_at, created_at FROM fresh
+		)
+		SELECT card_id FROM combined
+		ORDER BY due_at ASC, created_at ASC
+		LIMIT $%d
+	`, whereClause, inProgressCondition, whereClause, freshNowIndex, freshLimitIndex, overallLimitIndex)
+
+	return scanCardIDs(ctx, pool, query, args)
+}
+
+// loadCardsIntroducedToday 返回今天(用户本地 [dayStart, dayEnd))第一次出现在
+// review_events 里的 card_id。scheduler.Apply 对一张 state=0 的卡评第一次分就
+// 必然让它离开 New 状态（Again/Hard/Good 变 Learning，Easy 直接变 Review），所以
+// "这张卡在 review_events 里第一次出现的时间"精确等于"今天被引入学习"的时间，
+// 不需要额外记一个 first_seen_at 字段。
+func loadCardsIntroducedToday(ctx context.Context, pool *pgxpool.Pool, userID string, dayStart, dayEnd time.Time) ([]string, error) {
+	return scanCardIDs(ctx, pool, `
+		SELECT card_id::text
+		FROM review_events
+		WHERE user_id = $1
+		GROUP BY card_id
+		HAVING MIN(created_at) >= $2 AND MIN(created_at) < $3
+	`, []interface{}{userID, dayStart, dayEnd})
+}
+
+func scanCardIDs(ctx context.Context, pool *pgxpool.Pool, query string, args []interface{}) ([]string, error) {
+	rows, err := pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func loadCardsByIDs(ctx context.Context, pool *pgxpool.Pool, userID string, cardIDs []string) ([]model.Card, error) {
