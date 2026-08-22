@@ -44,7 +44,8 @@
 "Cards" = "卡片";
 "Change" = "修改";
 "Change password" = "修改密码";
-"Chinese -> English" = "中文 -> 英文";
+/* key 必须与后端下发的原文一致（learning.go 硬编码 "Chinese -> English"）。 */
+"Chinese -> English" = "中文 → 英文";
 "Choose a subject" = "选择主题";
 "Choose what to review" = "选择复习内容";
 "Clear Local Cache" = "清除本地缓存";

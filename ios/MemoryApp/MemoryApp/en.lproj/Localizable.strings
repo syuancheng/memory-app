@@ -44,7 +44,9 @@
 "Cards" = "Cards";
 "Change" = "Change";
 "Change password" = "Change password";
-"Chinese -> English" = "Chinese -> English";
+/* key 必须与后端下发的原文一致（learning.go 硬编码 "Chinese -> English"）；
+   漂亮的箭头只做展示替换，不改数据。 */
+"Chinese -> English" = "Chinese → English";
 "Choose a subject" = "Choose a subject";
 "Choose what to review" = "Choose what to review";
 "Clear Local Cache" = "Clear Local Cache";

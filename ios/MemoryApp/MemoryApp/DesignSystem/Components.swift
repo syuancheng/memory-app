@@ -624,6 +624,39 @@ struct AppListRow: View {
     }
 }
 
+/// 开关行：跟 AppListRow 共享同一套尺寸（rowPaddingH/V、rowMinHeight），
+/// 独立成型而非塞进 AppListRowAccessory —— 后者是 Equatable，Binding<Bool> 无法
+/// 自然纳入那套比较语义，没必要为了一个 case 牵动整个 accessory 类型。
+struct AppToggleRow: View {
+    let title: String
+    var subtitle: String? = nil
+    @Binding var isOn: Bool
+    var isEnabled: Bool = true
+
+    var body: some View {
+        // label 放进 Toggle 本体（而不是并排的 Toggle("")+Spacer+Text），
+        // 这样整行都能响应点击，且 VoiceOver 能拿到正确的可访问名称。
+        Toggle(isOn: $isOn) {
+            VStack(alignment: .leading, spacing: AppSpace.xs / 2) {
+                Text(LocalizedStringKey(title))
+                    .appText(AppType.headline, color: isEnabled ? AppColor.textPrimary : AppColor.disabledText)
+                    .lineLimit(1)
+
+                if let subtitle {
+                    Text(LocalizedStringKey(subtitle))
+                        .appText(AppType.body, color: AppColor.textTertiary)
+                        .lineLimit(2)
+                }
+            }
+        }
+        .tint(AppColor.primary)
+        .disabled(!isEnabled)
+        .padding(.horizontal, AppLayout.rowPaddingH)
+        .padding(.vertical, AppLayout.rowPaddingV)
+        .frame(minHeight: AppLayout.rowMinHeight)
+    }
+}
+
 private struct AppListRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

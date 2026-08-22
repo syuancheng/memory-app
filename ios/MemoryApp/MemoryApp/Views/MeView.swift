@@ -13,7 +13,7 @@ struct MeView: View {
 
     var body: some View {
         NavigationStack {
-            AppScreen {
+            MeScreen {
                 pageTitle
                 userHeader
                 achievementsSection
@@ -97,6 +97,9 @@ struct MeView: View {
 
             Spacer(minLength: 0)
         }
+        // MeScreen 的统一间距（14）是为卡片之间调的；头像区到第一张卡需要更多留白，
+        // 这里补 12 使其接近参考稿的 28。
+        .padding(.bottom, AppSpace.md)
         .accessibilityElement(children: .combine)
     }
 
@@ -115,71 +118,80 @@ struct MeView: View {
         }
     }
 
+    // 参考稿的入口卡没有分组小标题，靠卡片边界分组；每个入口配一枚柔和着色的图标容器。
     private var profileSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            AppSectionHeader(title: "Profile")
+        SettingsSection {
+            NavigationRow(
+                title: "Account",
+                icon: "person",
+                tint: .violet,
+                destination: MeDestination.account
+            )
 
-            AppGroupedList {
-                NavigationLink(value: MeDestination.account) {
-                    AppListRow(title: "Account", icon: "person")
-                }
-                .buttonStyle(.plain)
+            MeRowDivider()
 
-                AppRowSeparator()
+            NavigationRow(
+                title: "Connected Accounts",
+                icon: "link",
+                tint: .blue,
+                destination: MeDestination.connectedAccounts
+            )
 
-                NavigationLink(value: MeDestination.connectedAccounts) {
-                    AppListRow(title: "Connected Accounts", icon: "link")
-                }
-                .buttonStyle(.plain)
+            MeRowDivider()
 
-                AppRowSeparator()
-
-                NavigationLink(value: MeDestination.mcpAccess) {
-                    AppListRow(title: "Connect ChatGPT", icon: "sparkles")
-                }
-                .buttonStyle(.plain)
-            }
+            NavigationRow(
+                title: "Connect ChatGPT",
+                icon: "sparkles",
+                tint: .teal,
+                destination: MeDestination.mcpAccess
+            )
         }
     }
 
     private var settingsSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            AppSectionHeader(title: "Settings")
+        SettingsSection {
+            NavigationRow(
+                title: "Learning Preferences",
+                icon: "slider.horizontal.3",
+                tint: .violet,
+                destination: MeDestination.learningPreferences
+            )
 
-            AppGroupedList {
-                NavigationLink(value: MeDestination.learningPreferences) {
-                    AppListRow(title: "Learning Preferences", icon: "slider.horizontal.3")
-                }
-                .buttonStyle(.plain)
+            MeRowDivider()
 
-                AppRowSeparator()
+            NavigationRow(
+                title: "Notifications",
+                icon: "bell",
+                tint: .amber,
+                destination: MeDestination.notifications
+            )
 
-                NavigationLink(value: MeDestination.notifications) {
-                    AppListRow(title: "Notifications", icon: "bell")
-                }
-                .buttonStyle(.plain)
+            MeRowDivider()
 
-                AppRowSeparator()
+            NavigationRow(
+                title: "Appearance",
+                icon: "textformat.size",
+                tint: .teal,
+                destination: MeDestination.appearance
+            )
 
-                NavigationLink(value: MeDestination.appearance) {
-                    AppListRow(title: "Appearance", icon: "textformat.size")
-                }
-                .buttonStyle(.plain)
+            MeRowDivider()
 
-                AppRowSeparator()
+            NavigationRow(
+                title: "Privacy & Data",
+                icon: "lock.shield",
+                tint: .blue,
+                destination: MeDestination.privacyData
+            )
 
-                NavigationLink(value: MeDestination.privacyData) {
-                    AppListRow(title: "Privacy & Data", icon: "lock.shield")
-                }
-                .buttonStyle(.plain)
+            MeRowDivider()
 
-                AppRowSeparator()
-
-                NavigationLink(value: MeDestination.about) {
-                    AppListRow(title: "About", icon: "info.circle")
-                }
-                .buttonStyle(.plain)
-            }
+            NavigationRow(
+                title: "About",
+                icon: "info.circle",
+                tint: .rose,
+                destination: MeDestination.about
+            )
         }
     }
 
@@ -257,19 +269,17 @@ private struct MonthlyAchievementsPage: View {
     }
 
     var body: some View {
-        MePageScaffold(title: "Achievements") {
-            VStack(alignment: .leading, spacing: AppSpace.lg) {
-                MeGroupedSection {
-                    MeValueRow(title: "Current streak", value: "\(currentStreak) days")
-                    MeSeparator()
-                    MeValueRow(title: "Total learning days", value: "\(totalLearningDays) days")
-                }
+        SettingsPage(title: "Achievements") {
+            SettingsSection {
+                ValueRow(title: "Current streak", value: "\(currentStreak) days")
+                MeRowDivider()
+                ValueRow(title: "Total learning days", value: "\(totalLearningDays) days")
+            }
 
-                ActivityCalendarCard(records: records, selectedRecord: $selectedRecord)
+            ActivityCalendarCard(records: records, selectedRecord: $selectedRecord)
 
-                if let selectedRecord {
-                    ActivityDayDetailCard(record: selectedRecord)
-                }
+            if let selectedRecord {
+                ActivityDayDetailCard(record: selectedRecord)
             }
         }
     }
@@ -303,62 +313,54 @@ private struct AccountPage: View {
     }
 
     var body: some View {
-        MePageScaffold(title: "Account") {
-            VStack(alignment: .leading, spacing: AppSpace.xxl) {
+        SettingsPage(title: "Account") {
+            VStack(alignment: .leading, spacing: MeTheme.cardGap) {
                 // Avatar 尚无后端支持。此前点进去是一个永远保存不了的页面，
                 // 现在明确标注而不是给一个假的可点入口。
-                MeGroupedSection(title: "Avatar") {
-                    MeValueRow(title: "Avatar", value: "Coming soon")
+                SettingsSection {
+                    ValueRow(title: "Avatar", value: "Coming soon")
                 }
 
-                MeGroupedSection(title: "Account Info") {
+                SettingsSection {
                     if isAppleAccount {
-                        MeValueRow(title: "Apple Account", value: "Signed in with Apple")
-                        MeSeparator()
+                        ValueRow(title: "Apple Account", value: "Signed in with Apple")
+                        MeRowDivider()
                     }
 
-                    NavigationLink(value: MeDestination.accountEdit(.username)) {
-                        MeValueRow(title: "Username", value: name, showsChevron: true)
-                    }
-                    .buttonStyle(.plain)
+                    NavigationRow(
+                        title: "Username",
+                        value: name,
+                        destination: MeDestination.accountEdit(.username)
+                    )
 
-                    MeSeparator()
+                    MeRowDivider()
 
                     // 换邮箱需要「验证新地址 + 迁移 identity」的完整流程，尚未实现。
-                    MeValueRow(title: "Email", value: email)
+                    ValueRow(title: "Email", value: email)
 
-                    MeSeparator()
+                    MeRowDivider()
 
-                    Button {
+                    ActionRow(
+                        title: "Password",
+                        value: session.hasPassword ? "Change" : "Set",
+                        showsChevron: true
+                    ) {
                         showingPasswordSheet = true
-                    } label: {
-                        MeValueRow(
-                            title: "Password",
-                            value: session.hasPassword ? "Change" : "Set",
-                            showsChevron: true
-                        )
                     }
-                    .buttonStyle(.plain)
                 }
 
-                MeGroupedSection(title: "Account Actions") {
-                    Button {
+                SettingsSection {
+                    ActionRow(title: "Log Out") {
                         Task {
                             await session.logout()
                         }
-                    } label: {
-                        MePlainActionRow(title: "Log Out")
                     }
-                    .buttonStyle(.plain)
 
-                    MeSeparator()
+                    MeRowDivider()
 
-                    Button(role: .destructive) {
+                    ActionRow(title: "Delete Account", isDestructive: true) {
                         showingDeleteConfirmation = true
-                    } label: {
-                        MePlainActionRow(title: "Delete Account", isDestructive: true)
                     }
-                    .buttonStyle(.plain)
                 }
 
                 if let statusMessage {
@@ -543,8 +545,8 @@ private struct MCPAccessPage: View {
     }
 
     var body: some View {
-        MePageScaffold(title: "Connect ChatGPT") {
-            AppCard {
+        SettingsPage(title: "Connect ChatGPT") {
+            MeCard(padding: MeTheme.cardPadding) {
                 VStack(alignment: .leading, spacing: AppSpace.md) {
                     VStack(alignment: .leading, spacing: AppSpace.sm) {
                         Text("Use Cardly in ChatGPT")
@@ -594,7 +596,7 @@ private struct MCPAccessPage: View {
                 }
             }
 
-            AppCard {
+            MeCard(padding: MeTheme.cardPadding) {
                 VStack(alignment: .leading, spacing: AppSpace.sm) {
                     Text("Recommended setup")
                         .appText(AppType.headline)
@@ -604,7 +606,7 @@ private struct MCPAccessPage: View {
                 }
             }
 
-            AppCard {
+            MeCard(padding: MeTheme.cardPadding) {
                 VStack(alignment: .leading, spacing: AppSpace.md) {
                     VStack(alignment: .leading, spacing: AppSpace.sm) {
                         Text("Advanced OAuth settings")
@@ -673,7 +675,7 @@ private struct MCPAccessPage: View {
 
     private var advancedTokenSection: some View {
         VStack(alignment: .leading, spacing: AppSpace.lg) {
-            AppCard {
+            MeCard(padding: MeTheme.cardPadding) {
                 VStack(alignment: .leading, spacing: AppSpace.sm) {
                     Text("Personal access tokens")
                         .appText(AppType.headline)
@@ -741,9 +743,9 @@ private struct MCPAccessPage: View {
                 VStack(alignment: .leading, spacing: 0) {
                     AppSectionHeader(title: "Active tokens")
 
-                    AppGroupedList {
+                    MeCard {
                         ForEach(Array(tokens.enumerated()), id: \.element.id) { index, token in
-                            if index > 0 { AppRowSeparator(inset: AppLayout.separatorInsetPlain) }
+                            if index > 0 { MeRowDivider() }
                             AppListRow(
                                 title: token.name,
                                 subtitle: subtitle(for: token),
@@ -826,48 +828,28 @@ private struct ConnectedAccountsPage: View {
     @State private var statusMessage: String?
 
     var body: some View {
-        MePageScaffold(title: "Connected Accounts") {
-            VStack(alignment: .leading, spacing: AppSpace.lg) {
-                MeGroupedSection {
-                    Button {
-                        statusMessage = "Google connection is coming later."
-                    } label: {
-                        MeValueRow(title: "Google", value: "Connect")
-                    }
-                    .buttonStyle(.plain)
-
-                    MeSeparator()
-
-                    Button {
-                        statusMessage = "Facebook connection is coming later."
-                    } label: {
-                        MeValueRow(title: "Facebook", value: "Connect")
-                    }
-                    .buttonStyle(.plain)
-
-                    MeSeparator()
-
-                    Button {
-                        statusMessage = "WeChat connection is coming later."
-                    } label: {
-                        MeValueRow(title: "WeChat", value: "Connect")
-                    }
-                    .buttonStyle(.plain)
-
-                    MeSeparator()
-
-                    Button {
-                        statusMessage = "TikTok connection is coming later."
-                    } label: {
-                        MeValueRow(title: "TikTok", value: "Connect")
-                    }
-                    .buttonStyle(.plain)
+        SettingsPage(title: "Connected Accounts") {
+            SettingsSection(footer: statusMessage) {
+                ActionRow(title: "Google", value: "Connect") {
+                    statusMessage = "Google connection is coming later."
                 }
 
-                if let statusMessage {
-                    Text(statusMessage)
-                        .appText(AppType.label, color: AppColor.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                MeRowDivider()
+
+                ActionRow(title: "Facebook", value: "Connect") {
+                    statusMessage = "Facebook connection is coming later."
+                }
+
+                MeRowDivider()
+
+                ActionRow(title: "WeChat", value: "Connect") {
+                    statusMessage = "WeChat connection is coming later."
+                }
+
+                MeRowDivider()
+
+                ActionRow(title: "TikTok", value: "Connect") {
+                    statusMessage = "TikTok connection is coming later."
                 }
             }
         }
@@ -882,6 +864,7 @@ private struct LearningPreferencesPage: View {
         dailyReminderEnabled: false,
         dailyReminderTime: "20:00",
         defaultReviewMode: "Review",
+        // 与后端下发的原文保持一致；箭头字形的美化在 Localizable.strings 的 value 里做。
         defaultCardDirection: "Chinese -> English"
     )
     @State private var reminderDate = Calendar.current.date(from: DateComponents(hour: 20, minute: 0)) ?? Date()
@@ -890,69 +873,54 @@ private struct LearningPreferencesPage: View {
     @State private var statusMessage: String?
 
     var body: some View {
-        MePageScaffold(title: "Learning Preferences") {
-            VStack(alignment: .leading, spacing: AppSpace.lg) {
-                MeGroupedSection(title: "Daily Plan") {
-                    VStack(alignment: .leading, spacing: AppSpace.md) {
-                        Picker("Daily limit mode", selection: $preferences.limitMode) {
-                            ForEach(DailyLimitMode.allCases) { mode in
-                                Text(mode.title).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        if preferences.limitMode == .newPlusReview {
-                            Stepper(value: $preferences.newCardsPerDay, in: 0...100) {
-                                MeValueRow(title: "New Cards Per Day", value: "\(preferences.newCardsPerDay)")
-                            }
-                        } else {
-                            Stepper(value: $preferences.totalCardsPerDay, in: 1...300) {
-                                MeValueRow(title: "Total Cards Per Day", value: "\(preferences.totalCardsPerDay)")
-                            }
-                        }
-                    }
-                    .padding(.horizontal, AppSpace.md)
-                    .padding(.vertical, AppSpace.md)
-                }
-
-                MeGroupedSection(title: "Defaults") {
-                    MeValueRow(title: "Default Review Mode", value: preferences.defaultReviewMode)
-                    MeSeparator()
-                    MeValueRow(title: "Default Card Direction", value: preferences.defaultCardDirection)
-                }
-
-                MeGroupedSection(title: "Reminder") {
-                    Toggle(isOn: $preferences.dailyReminderEnabled) {
-                        Text("Daily Reminder")
-                            .appText(AppType.body)
-                    }
-                    .padding(.horizontal, AppSpace.md)
-                    .frame(minHeight: 56)
-
-                    if preferences.dailyReminderEnabled {
-                        MeSeparator()
-                        DatePicker(
-                            "Reminder Time",
-                            selection: $reminderDate,
-                            displayedComponents: .hourAndMinute
-                        )
-                        .padding(.horizontal, AppSpace.md)
-                        .frame(minHeight: 56)
+        SettingsPage(title: "Learning Preferences") {
+            SettingsSection {
+                PickerRow(title: "Daily limit mode", selection: $preferences.limitMode) {
+                    ForEach(DailyLimitMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
                     }
                 }
 
-                if let statusMessage {
-                    Text(statusMessage)
-                        .appText(AppType.label, color: AppColor.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                MeRowDivider()
 
-                AppButton(
-                    title: isSaving ? "Saving..." : "Save",
-                    variant: .primary,
-                    size: .large,
-                    fullWidth: true
-                ) {
+                // 数字直接键入，不用 +/− 步进器。
+                if preferences.limitMode == .newPlusReview {
+                    NumberFieldRow(title: "New Cards Per Day", value: $preferences.newCardsPerDay, range: 0...100)
+                } else {
+                    NumberFieldRow(title: "Total Cards Per Day", value: $preferences.totalCardsPerDay, range: 1...300)
+                }
+            }
+
+            SettingsSection {
+                ValueRow(title: "Default Review Mode", value: preferences.defaultReviewMode)
+                MeRowDivider()
+                ValueRow(title: "Default Card Direction", value: preferences.defaultCardDirection)
+            }
+
+            SettingsSection(footer: statusMessage) {
+                ToggleRow(
+                    title: "Daily Reminder",
+                    subtitle: "Get a daily nudge to review your cards",
+                    isOn: $preferences.dailyReminderEnabled
+                )
+
+                if preferences.dailyReminderEnabled {
+                    MeRowDivider()
+                    DatePicker(
+                        "Reminder Time",
+                        selection: $reminderDate,
+                        displayedComponents: .hourAndMinute
+                    )
+                    .appText(MeTheme.rowLabel)
+                    .padding(.horizontal, MeTheme.rowPaddingH)
+                    .padding(.vertical, MeTheme.rowPaddingV)
+                    .frame(minHeight: MeTheme.rowMinHeight)
+                }
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button(isSaving ? "Saving..." : "Save") {
                     Task {
                         await savePreferences()
                     }
@@ -1052,13 +1020,13 @@ private struct LearningPreferencesPage: View {
 
 private struct NotificationsPage: View {
     var body: some View {
-        MePageScaffold(title: "Notifications") {
-            MeGroupedSection {
-                MeValueRow(title: "Review Reminders", value: "Coming later")
-                MeSeparator()
-                MeValueRow(title: "Reminder Time", value: "8:00 PM")
-                MeSeparator()
-                MeValueRow(title: "App Messages", value: "Coming later")
+        SettingsPage(title: "Notifications") {
+            SettingsSection {
+                ValueRow(title: "Review Reminders", value: "Coming later")
+                MeRowDivider()
+                ValueRow(title: "Reminder Time", value: "8:00 PM")
+                MeRowDivider()
+                ValueRow(title: "App Messages", value: "Coming later")
             }
         }
     }
@@ -1070,51 +1038,29 @@ private struct AppearancePage: View {
     @AppStorage("reviewEnglishVoice") private var englishVoice = ReviewEnglishVoice.american.rawValue
 
     var body: some View {
-        MePageScaffold(title: "Appearance") {
-            VStack(alignment: .leading, spacing: AppSpace.md) {
-                AppCard {
-                    VStack(alignment: .leading, spacing: AppSpace.lg) {
-                        VStack(alignment: .leading, spacing: AppSpace.md) {
-                            Text("Language")
-                                .appText(AppType.label, color: AppColor.textTertiary)
-
-                            Picker("Language", selection: $appLanguage) {
-                                ForEach(AppLanguage.allCases) { language in
-                                    Text(language.title).tag(language.rawValue)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                        }
-
-                        VStack(alignment: .leading, spacing: AppSpace.md) {
-                            Text("Font Size")
-                                .appText(AppType.label, color: AppColor.textTertiary)
-
-                            Picker("Font Size", selection: $fontSizeChoice) {
-                                ForEach(FontSizeChoice.allCases) { choice in
-                                    Text(LocalizedStringKey(choice.title)).tag(choice.rawValue)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                        }
-
-                        VStack(alignment: .leading, spacing: AppSpace.md) {
-                            Text("English Voice")
-                                .appText(AppType.label, color: AppColor.textTertiary)
-
-                            Picker("English Voice", selection: $englishVoice) {
-                                ForEach(ReviewEnglishVoice.allCases) { voice in
-                                    Text(LocalizedStringKey(voice.title)).tag(voice.rawValue)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                        }
+        SettingsPage(title: "Appearance") {
+            SettingsSection {
+                LabeledPickerRow(title: "Language", selection: $appLanguage) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.title).tag(language.rawValue)
                     }
                 }
+            }
 
-                Text("Voice preference applies to answer audio during review.")
-                    .appText(AppType.label, color: AppColor.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+            SettingsSection {
+                LabeledPickerRow(title: "Font Size", selection: $fontSizeChoice) {
+                    ForEach(FontSizeChoice.allCases) { choice in
+                        Text(LocalizedStringKey(choice.title)).tag(choice.rawValue)
+                    }
+                }
+            }
+
+            SettingsSection(footer: "Voice preference applies to answer audio during review.") {
+                LabeledPickerRow(title: "English Voice", selection: $englishVoice) {
+                    ForEach(ReviewEnglishVoice.allCases) { voice in
+                        Text(LocalizedStringKey(voice.title)).tag(voice.rawValue)
+                    }
+                }
             }
         }
     }
@@ -1124,44 +1070,24 @@ private struct PrivacyDataPage: View {
     @State private var statusMessage: String?
 
     var body: some View {
-        MePageScaffold(title: "Privacy & Data") {
-            VStack(alignment: .leading, spacing: AppSpace.lg) {
-                MeGroupedSection {
-                    NavigationLink(value: MeDestination.document(.privacy)) {
-                        AppListRow(title: "Privacy Policy")
-                    }
-                    .buttonStyle(.plain)
+        SettingsPage(title: "Privacy & Data") {
+            SettingsSection(footer: statusMessage) {
+                NavigationRow(title: "Privacy Policy", destination: MeDestination.document(.privacy))
 
-                    MeSeparator()
+                MeRowDivider()
 
-                    NavigationLink(value: MeDestination.document(.terms)) {
-                        AppListRow(title: "Terms of Service")
-                    }
-                    .buttonStyle(.plain)
+                NavigationRow(title: "Terms of Service", destination: MeDestination.document(.terms))
 
-                    MeSeparator()
+                MeRowDivider()
 
-                    Button {
-                        statusMessage = "Export data is coming later."
-                    } label: {
-                        MeValueRow(title: "Export Data", value: "Coming later")
-                    }
-                    .buttonStyle(.plain)
-
-                    MeSeparator()
-
-                    Button {
-                        statusMessage = "Clear local cache is coming later."
-                    } label: {
-                        MeValueRow(title: "Clear Local Cache", value: "Coming later")
-                    }
-                    .buttonStyle(.plain)
+                ActionRow(title: "Export Data", value: "Coming later") {
+                    statusMessage = "Export data is coming later."
                 }
 
-                if let statusMessage {
-                    Text(statusMessage)
-                        .appText(AppType.label, color: AppColor.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                MeRowDivider()
+
+                ActionRow(title: "Clear Local Cache", value: "Coming later") {
+                    statusMessage = "Clear local cache is coming later."
                 }
             }
         }
@@ -1170,25 +1096,21 @@ private struct PrivacyDataPage: View {
 
 private struct AboutPage: View {
     var body: some View {
-        MePageScaffold(title: "About") {
-            MeGroupedSection {
-                MeValueRow(title: "App Name", value: "Cardly")
-                MeSeparator()
-                MeValueRow(title: "App Version", value: appVersion)
-                MeSeparator()
-                MeValueRow(title: "Build Number", value: buildNumber)
-                MeSeparator()
-                MeValueRow(title: "Contact / Feedback", value: "Coming later")
-                MeSeparator()
-                NavigationLink(value: MeDestination.document(.privacy)) {
-                    AppListRow(title: "Privacy Policy")
-                }
-                .buttonStyle(.plain)
-                MeSeparator()
-                NavigationLink(value: MeDestination.document(.terms)) {
-                    AppListRow(title: "Terms of Service")
-                }
-                .buttonStyle(.plain)
+        SettingsPage(title: "About") {
+            SettingsSection {
+                ValueRow(title: "App Name", value: "Cardly")
+                MeRowDivider()
+                ValueRow(title: "App Version", value: appVersion)
+                MeRowDivider()
+                ValueRow(title: "Build Number", value: buildNumber)
+                MeRowDivider()
+                ValueRow(title: "Contact / Feedback", value: "Coming later")
+            }
+
+            SettingsSection {
+                NavigationRow(title: "Privacy Policy", destination: MeDestination.document(.privacy))
+                MeRowDivider()
+                NavigationRow(title: "Terms of Service", destination: MeDestination.document(.terms))
             }
         }
     }
@@ -1231,8 +1153,8 @@ private struct AccountEditPage: View {
     }
 
     var body: some View {
-        MePageScaffold(title: kind.title) {
-            AppCard {
+        SettingsPage(title: kind.title) {
+            MeCard(padding: MeTheme.cardPadding) {
                 AppTextField(
                     label: kind.fieldTitle,
                     text: $value,
@@ -1283,9 +1205,9 @@ private struct LocalDocumentPage: View {
     let document: LocalDocument
 
     var body: some View {
-        MePageScaffold(title: document.title) {
-            // 同 Username 页：自由内容用 AppCard，避免零内边距落进圆角裁切区。
-            AppCard {
+        SettingsPage(title: document.title) {
+            // 自由内容用带内边距的卡片，避免零内边距落进圆角裁切区。
+            MeCard(padding: MeTheme.cardPadding) {
                 VStack(alignment: .leading, spacing: AppSpace.md) {
                     Text(document.title)
                         .appText(AppType.title2)
@@ -1299,107 +1221,9 @@ private struct LocalDocumentPage: View {
     }
 }
 
-private struct MePageScaffold<Content: View>: View {
-    let title: String
-    let content: () -> Content
-
-    init(title: String, @ViewBuilder content: @escaping () -> Content) {
-        self.title = title
-        self.content = content
-    }
-
-    var body: some View {
-        AppScreen {
-            content()
-        }
-        // 样式 A：可返回的屏一律用原生导航栏（inline 标题 + 系统返回）。
-        .navigationTitle(LocalizedStringKey(title))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
-    }
-}
-
-/// 分组容器。**不加内水平边距** —— 由行组件自带（AppListRow 为 16）。
-/// ⚠️ 改造前此处是 28pt 圆角 + 零内边距，内容紧贴 x=0 落进圆角曲线被 clipShape 裁切，
-///    这正是 Username 页 "Username" 与 "Account editing is coming later." 被切的原因。
-///    需要自带边距的自由内容请改用 AppCard（它有 cardPadding 16）。
-private struct MeGroupedSection<Content: View>: View {
-    let title: String?
-    let content: () -> Content
-
-    init(title: String? = nil, @ViewBuilder content: @escaping () -> Content) {
-        self.title = title
-        self.content = content
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let title {
-                AppSectionHeader(title: title)
-            }
-
-            AppGroupedList {
-                content()
-            }
-        }
-    }
-}
-
-private struct MeValueRow: View {
-    let title: String
-    let value: String
-    var showsChevron = false
-
-    var body: some View {
-        AppListRow(
-            title: title,
-            accessory: showsChevron ? .valueWithDisclosure(value) : .value(value)
-        )
-    }
-}
-
-private struct AvatarSettingsRow: View {
-    let initial: String
-
-    var body: some View {
-        HStack(spacing: AppSpace.md) {
-            Text("Avatar")
-                .appText(AppType.headline)
-
-            Spacer(minLength: AppSpace.md)
-
-            Text(initial)
-                .appText(AppType.label, color: AppColor.textOnInverse)
-                .frame(width: AppLayout.avatarSM, height: AppLayout.avatarSM)
-                .background(AppColor.surfaceInverse, in: Circle())
-
-            Image(systemName: AppIcon.disclose)
-                .font(AppIcon.font(AppLayout.iconSM))
-                .foregroundStyle(AppColor.neutral400)
-        }
-        .padding(.horizontal, AppLayout.rowPaddingH)
-        .padding(.vertical, AppLayout.rowPaddingV)
-        .frame(minHeight: AppLayout.rowMinHeight)
-        .contentShape(Rectangle())
-    }
-}
-
-private struct MePlainActionRow: View {
-    let title: String
-    var isDestructive = false
-
-    var body: some View {
-        AppListRow(title: title, accessory: .none, isDestructive: isDestructive)
-    }
-}
-
-/// Me 子页的行多为无图标的 MeValueRow，故缩进用 separatorInsetPlain(16)。
-/// 有图标的行（Profile / Settings 分组）直接用 AppRowSeparator()，缩进 56。
-private struct MeSeparator: View {
-    var body: some View {
-        AppRowSeparator(inset: AppLayout.separatorInsetPlain)
-    }
-}
+// MePageScaffold / MeGroupedSection / MeValueRow / MePlainActionRow / MeSeparator /
+// AvatarSettingsRow 已随本次改版删除 —— 它们的职责整体迁移到 DesignSystem/MeSettingsKit.swift
+// 的 SettingsPage / SettingsSection / ValueRow / ActionRow / MeRowDivider。
 
 private struct ActivityCalendarPreview: View {
     let records: [DailyLearningRecord]
@@ -1410,7 +1234,7 @@ private struct ActivityCalendarPreview: View {
     }
 
     var body: some View {
-        AppCard {
+        MeCard(padding: MeTheme.cardPadding) {
             VStack(alignment: .leading, spacing: AppSpace.lg) {
                 // 空数据时**网格照常绘制**（全部 heatLevel0），只是不显示图例。
                 // 改造前空数据是一整块无差别的灰，读不出"没数据"还是"没加载出来"。
@@ -1435,14 +1259,11 @@ private struct ActivityCalendarCard: View {
     @Binding var selectedRecord: DailyLearningRecord?
 
     var body: some View {
-        MeGroupedSection {
-            VStack(alignment: .leading, spacing: AppSpace.lg) {
-                MonthlyCheckInCalendarGrid(
-                    records: records,
-                    selectedRecord: $selectedRecord
-                )
-            }
-            .padding(AppLayout.cardPadding)
+        MeCard(padding: MeTheme.cardPadding) {
+            MonthlyCheckInCalendarGrid(
+                records: records,
+                selectedRecord: $selectedRecord
+            )
         }
     }
 }
@@ -1643,22 +1464,20 @@ private struct ActivityDayDetailCard: View {
     let record: DailyLearningRecord
 
     var body: some View {
-        MeGroupedSection {
-            VStack(alignment: .leading, spacing: AppSpace.md) {
-                Text(dayDetailTitle(for: record.date))
-                    .appText(AppType.headline)
+        MeCard {
+            Text(dayDetailTitle(for: record.date))
+                .appText(AppType.headline)
+                .padding(.horizontal, MeTheme.rowPaddingH)
+                .padding(.top, MeTheme.rowPaddingV)
+                .padding(.bottom, AppSpace.sm)
 
-                VStack(spacing: AppSpace.sm) {
-                    MeValueRow(title: "Learning time", value: "\(record.minutes) min")
-                    MeSeparator()
-                    MeValueRow(title: "Cards reviewed", value: "\(record.reviewed)")
-                    MeSeparator()
-                    MeValueRow(title: "Cards mastered", value: "\(record.mastered)")
-                    MeSeparator()
-                    MeValueRow(title: "New cards added", value: "\(record.newCards)")
-                }
-            }
-            .padding(AppLayout.cardPadding)
+            ValueRow(title: "Learning time", value: "\(record.minutes) min")
+            MeRowDivider()
+            ValueRow(title: "Cards reviewed", value: "\(record.reviewed)")
+            MeRowDivider()
+            ValueRow(title: "Cards mastered", value: "\(record.mastered)")
+            MeRowDivider()
+            ValueRow(title: "New cards added", value: "\(record.newCards)")
         }
     }
 }

@@ -27,6 +27,7 @@
 		100000000000000000000124 /* PendingReviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000224 /* PendingReviewStore.swift */; };
 		100000000000000000000125 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000225 /* Localization.swift */; };
 		100000000000000000000126 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000228 /* Localizable.strings */; };
+		100000000000000000000130 /* MeSettingsKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000230 /* MeSettingsKit.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -53,6 +54,7 @@
 		100000000000000000000225 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 		100000000000000000000226 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		100000000000000000000227 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		100000000000000000000230 /* MeSettingsKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeSettingsKit.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -138,6 +140,7 @@
 			children = (
 				100000000000000000000218 /* Tokens.swift */,
 				100000000000000000000219 /* Components.swift */,
+				100000000000000000000230 /* MeSettingsKit.swift */,
 			);
 			path = DesignSystem;
 			sourceTree = "<group>";
@@ -215,6 +218,7 @@
 			files = (
 				100000000000000000000118 /* Tokens.swift in Sources */,
 				100000000000000000000119 /* Components.swift in Sources */,
+				100000000000000000000130 /* MeSettingsKit.swift in Sources */,
 				100000000000000000000101 /* MemoryAppApp.swift in Sources */,
 				100000000000000000000102 /* MemoryModels.swift in Sources */,
 				100000000000000000000103 /* APIClient.swift in Sources */,
