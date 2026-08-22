@@ -135,7 +135,9 @@ func TestLearnSessionCapsNewCardsPerDay(t *testing.T) {
 // TestLearnSessionQuotaIgnoresPriorDayIntroductions 验证"今天引入了几张新卡"的
 // 判定只看 review_events 里每张卡第一次评分的时间：一张昨天就开始学、今天还没
 // 毕业的 Learning 卡不该占用今天的新卡配额。
-func TestLearnSessionQuotaIgnoresPriorDayIntroductions(t *testing.T) {
+// 往日欠账卡占用当天名额：上限 1 + 1 张欠账 ⇒ 这一次只出欠账那张，不再补新卡，
+// 总数严格等于上限，而不是「上限之外再加欠账」。
+func TestLearnSessionCarryoverConsumesDailyQuota(t *testing.T) {
 	ctx := context.Background()
 	handler, pool, svc := newTestEnv(t)
 	user := seedUser(t, ctx, pool, svc)
@@ -157,10 +159,39 @@ func TestLearnSessionQuotaIgnoresPriorDayIntroductions(t *testing.T) {
 	if !ids[leftoverCardID] {
 		t.Errorf("learn session = %v, want it to include yesterday's unfinished card %s", session.Cards, leftoverCardID)
 	}
-	if !ids[freshCardID] {
-		t.Errorf("learn session = %v, want it to still include today's 1 fresh card %s (leftover card must not eat the quota)", session.Cards, freshCardID)
+	if ids[freshCardID] {
+		t.Errorf("learn session = %v, want fresh card %s excluded: the 1 leftover card already used up the daily quota of 1", session.Cards, freshCardID)
 	}
-	if len(session.Cards) != 2 {
-		t.Errorf("learn session has %d cards, want 2 (1 leftover + 1 fresh)", len(session.Cards))
+	if len(session.Cards) != 1 {
+		t.Errorf("learn session has %d cards, want 1 (quota 1 fully consumed by the leftover card)", len(session.Cards))
+	}
+}
+
+// 欠账占掉一部分名额后，剩余名额仍要补满新卡：上限 3 + 1 张欠账 ⇒ 1 欠账 + 2 新 = 3。
+func TestLearnSessionFillsRemainingQuotaAfterCarryover(t *testing.T) {
+	ctx := context.Background()
+	handler, pool, svc := newTestEnv(t)
+	user := seedUser(t, ctx, pool, svc)
+	setNewCardsPerDay(t, handler, user, 3)
+
+	now := time.Now().UTC()
+	leftoverCardID := seedCardWithState(t, ctx, pool, user, fsrs.Learning, now.Add(-time.Minute), nil, nil)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO review_events (id, card_id, user_id, mode, rating, created_at)
+		VALUES ($1, $2, $3, 'learn', 'again', $4)
+	`, uuid.NewString(), leftoverCardID, user.ID, now.Add(-30*time.Hour)); err != nil {
+		t.Fatalf("seed yesterday's review_event: %v", err)
+	}
+
+	for i := 0; i < 5; i++ {
+		seedCardWithState(t, ctx, pool, user, fsrs.New, now.Add(-time.Duration(i+1)*time.Hour), nil, nil)
+	}
+
+	session := fetchLearnSession(t, handler, user)
+	if !cardIDsOf(session)[leftoverCardID] {
+		t.Errorf("learn session = %v, want it to include the leftover card %s", session.Cards, leftoverCardID)
+	}
+	if len(session.Cards) != 3 {
+		t.Errorf("learn session has %d cards, want 3 (1 leftover + 2 fresh, quota 3)", len(session.Cards))
 	}
 }

@@ -279,10 +279,17 @@ func queryDueCandidateIDs(ctx context.Context, pool *pgxpool.Pool, whereClause s
 //   - in_progress：state=1（已经在学）的卡，只要 due_at 到期，或者它是今天已经
 //     引入的那一批，就算数——这一步让 Again/Hard 之后不用等 FSRS 给的短期
 //     due_at，立刻能在同一次学习里再出现。
-//   - fresh：state=0（从没学过）的卡，只按今天已经引入了几张不同的卡来限流：
-//     LIMIT max(0, NewCardsPerDay - 今天已引入数)。不管前面的卡反复 Again 多
-//     少次，这个 LIMIT 只看"今天开始学的不同卡片数"，不会因为某张卡毕业腾出
-//     名额就多塞一张新卡进来。
+//   - fresh：state=0（从没学过）的卡，只按今天还剩几个名额来限流：
+//     LIMIT max(0, NewCardsPerDay - 今天已引入数 - 往日欠账数)。不管前面的卡
+//     反复 Again 多少次，这个 LIMIT 只看"今天开始学的不同卡片数"，不会因为某
+//     张卡毕业腾出名额就多塞一张新卡进来。
+//
+// 每日名额**先给往日欠账卡**（今天之前就开始学、现在又到期的 state=1），剩下的
+// 才用来放全新卡。这样一次 Learn 的总数就落在 NewCardsPerDay 上：欠账 2 张 +
+// 全新 18 张 = 20，而不是 20 张新卡之外再额外加 2 张欠账。
+//
+// 边界：欠账数本身超过 NewCardsPerDay 时不截断——已经开始学的卡不该被挡住，
+// 此时总数会大于上限，随着这些卡毕业自然回落。
 //
 // "今天引入"完全靠 review_events 派生（loadCardsIntroducedToday），不落地任何
 // 会话状态，所以哪怕 App 被杀掉重开、服务重启，也能照样正确重建。
@@ -291,7 +298,11 @@ func queryLearnCandidateIDs(ctx context.Context, pool *pgxpool.Pool, whereClause
 	if err != nil {
 		return nil, err
 	}
-	remainingNewSlots := q.NewCardsPerDay - len(introducedTodayIDs)
+	carryoverCount, err := countLearnCarryover(ctx, pool, whereClause, baseArgs, argIndex, q.Now, introducedTodayIDs)
+	if err != nil {
+		return nil, err
+	}
+	remainingNewSlots := q.NewCardsPerDay - len(introducedTodayIDs) - carryoverCount
 	if remainingNewSlots < 0 {
 		remainingNewSlots = 0
 	}
@@ -355,6 +366,45 @@ func queryLearnCandidateIDs(ctx context.Context, pool *pgxpool.Pool, whereClause
 	`, whereClause, inProgressCondition, whereClause, freshNowIndex, freshLimitIndex, overallLimitIndex)
 
 	return scanCardIDs(ctx, pool, query, args)
+}
+
+// countLearnCarryover 数"往日欠账"：今天之前就开始学、至今还是 state=1、现在
+// 又到期的卡。它们不是新卡，但会占用今天的学习名额，让一次 Learn 的总数收敛到
+// NewCardsPerDay（见 queryLearnCandidateIDs 的说明）。
+//
+// 排除今天引入的卡，是因为那批已经通过 len(introducedTodayIDs) 计过一次名额了，
+// 两边都算会重复扣。
+func countLearnCarryover(ctx context.Context, pool *pgxpool.Pool, whereClause string, baseArgs []interface{}, argIndex int, now time.Time, introducedTodayIDs []string) (int, error) {
+	args := append([]interface{}{}, baseArgs...)
+
+	args = append(args, now)
+	condition := fmt.Sprintf("rs.state = 1 AND rs.due_at <= $%d", argIndex)
+	argIndex++
+
+	if len(introducedTodayIDs) > 0 {
+		placeholders := make([]string, 0, len(introducedTodayIDs))
+		for _, id := range introducedTodayIDs {
+			placeholders = append(placeholders, fmt.Sprintf("$%d", argIndex))
+			args = append(args, id)
+			argIndex++
+		}
+		condition = fmt.Sprintf("%s AND c.id NOT IN (%s)", condition, strings.Join(placeholders, ","))
+	}
+
+	query := fmt.Sprintf(`
+		SELECT count(*)
+		FROM cards c
+		JOIN sets st ON st.id = c.set_id
+		JOIN subjects s ON s.id = c.subject_id
+		JOIN review_states rs ON rs.card_id = c.id
+		WHERE %s AND %s
+	`, whereClause, condition)
+
+	var count int
+	if err := pool.QueryRow(ctx, query, args...).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 // loadCardsIntroducedToday 返回今天(用户本地 [dayStart, dayEnd))第一次出现在
