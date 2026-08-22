@@ -485,10 +485,49 @@ func normalizeLearningPreferences(prefs learningPreferencesResponse) learningPre
 	return prefs
 }
 
-// computeRemainingToday 算"今天还剩多少张新卡/复习"，公式跟迁移前 iOS
-// HomeView.swift 里 todayNewCardCount/todayReviewCount 完全一致，这次搬到
-// 后端做单一数据源：new_plus_review 模式下复习不设上限，新卡按 NewCardsPerDay
-// 减去今天已毕业的数量；fixed_total 模式下新卡和复习共享每日总量上限。
+// computeRemainingTodayForUser 算首页那两个数。new_plus_review 模式下的
+// "还剩多少张新卡"**直接复用 getReviewSession 的候选查询**（不带 subject/set
+// 过滤），所以首页显示的数字与真正进入 Learn 后拿到的卡数是同一个来源，不可能
+// 再出现"首页写 17、进去却是 19 left"。
+//
+// 以前这里用的是 NewCardsPerDay - 今天已毕业数，而会话用的是
+// NewCardsPerDay - 今天已引入数 - 往日欠账数，两套口径必然对不上：
+// "毕业"和"引入"本来就是两回事（一张反复 Again 的卡已引入但没毕业），
+// 欠账卡更是只有会话那边算。
+//
+// fixed_total 模式维持原来的纯算术——它目前只影响首页计数，并不真正约束会话
+// （getReviewSession 不看 limit_mode），属于另一个待处理问题。
+func (s *Server) computeRemainingTodayForUser(
+	ctx context.Context,
+	userID string,
+	prefs learningPreferencesResponse,
+	summary meSummaryResponse,
+	dayStart, dayEnd time.Time,
+) (newRemaining int, reviewRemaining int, err error) {
+	if prefs.LimitMode == learningModeFixedTotal {
+		newRemaining, reviewRemaining = computeRemainingToday(
+			prefs, summary.NewCount, summary.ReviewDueCount, summary.NewLearnedToday,
+		)
+		return newRemaining, reviewRemaining, nil
+	}
+
+	ids, _, err := queryReviewCandidateIDs(ctx, s.db, reviewCandidateQuery{
+		UserID:         userID,
+		SessionMode:    sessionModeLearn,
+		Now:            time.Now().UTC(),
+		Limit:          sessionCandidateLimit,
+		NewCardsPerDay: prefs.NewCardsPerDay,
+		DayStart:       dayStart,
+		DayEnd:         dayEnd,
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	return len(ids), summary.ReviewDueCount, nil
+}
+
+// computeRemainingToday 是 fixed_total 模式的纯算术版本：新卡和复习共享每日
+// 总量上限，新卡按 TotalCardsPerDay 减去复习占用和今天已毕业的数量。
 func computeRemainingToday(prefs learningPreferencesResponse, newCount int, reviewDueCount int, newLearnedToday int) (newRemaining int, reviewRemaining int) {
 	if prefs.LimitMode == learningModeFixedTotal {
 		reviewRemaining = min(reviewDueCount, prefs.TotalCardsPerDay)

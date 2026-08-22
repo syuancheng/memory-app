@@ -132,9 +132,6 @@ func TestLearnSessionCapsNewCardsPerDay(t *testing.T) {
 	}
 }
 
-// TestLearnSessionQuotaIgnoresPriorDayIntroductions 验证"今天引入了几张新卡"的
-// 判定只看 review_events 里每张卡第一次评分的时间：一张昨天就开始学、今天还没
-// 毕业的 Learning 卡不该占用今天的新卡配额。
 // 往日欠账卡占用当天名额：上限 1 + 1 张欠账 ⇒ 这一次只出欠账那张，不再补新卡，
 // 总数严格等于上限，而不是「上限之外再加欠账」。
 func TestLearnSessionCarryoverConsumesDailyQuota(t *testing.T) {
@@ -193,5 +190,46 @@ func TestLearnSessionFillsRemainingQuotaAfterCarryover(t *testing.T) {
 	}
 	if len(session.Cards) != 3 {
 		t.Errorf("learn session has %d cards, want 3 (1 leftover + 2 fresh, quota 3)", len(session.Cards))
+	}
+}
+
+// 首页的 new_remaining_today 必须等于真正进入 Learn 后拿到的卡数。这两个数字
+// 历史上走的是两套口径（毕业数 vs 引入数+欠账），导致首页写 17、进去却是
+// 19 left。这里用「1 张往日欠账 + 若干新卡」这个最容易暴露差异的组合钉死它。
+func TestSummaryNewRemainingMatchesLearnSessionSize(t *testing.T) {
+	ctx := context.Background()
+	handler, pool, svc := newTestEnv(t)
+	user := seedUser(t, ctx, pool, svc)
+	setNewCardsPerDay(t, handler, user, 4)
+
+	now := time.Now().UTC()
+	leftoverCardID := seedCardWithState(t, ctx, pool, user, fsrs.Learning, now.Add(-time.Minute), nil, nil)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO review_events (id, card_id, user_id, mode, rating, created_at)
+		VALUES ($1, $2, $3, 'learn', 'again', $4)
+	`, uuid.NewString(), leftoverCardID, user.ID, now.Add(-30*time.Hour)); err != nil {
+		t.Fatalf("seed yesterday's review_event: %v", err)
+	}
+	for i := 0; i < 6; i++ {
+		seedCardWithState(t, ctx, pool, user, fsrs.New, now.Add(-time.Duration(i+1)*time.Hour), nil, nil)
+	}
+
+	session := fetchLearnSession(t, handler, user)
+
+	rec := call(t, handler, http.MethodGet, "/api/me/summary", user.Token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /me/summary: status %d body %s", rec.Code, rec.Body.String())
+	}
+	var summary meSummaryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &summary); err != nil {
+		t.Fatalf("decode summary: %v body=%s", err, rec.Body.String())
+	}
+
+	if len(session.Cards) != 4 {
+		t.Errorf("learn session has %d cards, want 4 (1 leftover + 3 fresh, quota 4)", len(session.Cards))
+	}
+	if summary.NewRemainingToday != len(session.Cards) {
+		t.Errorf("new_remaining_today = %d, but the learn session returns %d cards; the home count must predict the session exactly",
+			summary.NewRemainingToday, len(session.Cards))
 	}
 }

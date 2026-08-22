@@ -213,9 +213,12 @@ func (s *Server) loadMeSummary(ctx context.Context, userID string, tzOffsetMinut
 	if err != nil {
 		return meSummaryResponse{}, err
 	}
-	summary.NewRemainingToday, summary.ReviewRemainingToday = computeRemainingToday(
-		prefs, summary.NewCount, summary.ReviewDueCount, summary.NewLearnedToday,
+	summary.NewRemainingToday, summary.ReviewRemainingToday, err = s.computeRemainingTodayForUser(
+		ctx, userID, prefs, summary, dayStart, dayEnd,
 	)
+	if err != nil {
+		return meSummaryResponse{}, err
+	}
 
 	checkInDate := dayStart.Format("2006-01-02")
 	err = s.db.QueryRow(ctx, `

@@ -62,7 +62,12 @@ struct ReviewSessionView: View {
                 ReviewCardView(
                     mode: currentMode,
                     card: currentCard,
-                    progressText: "\(reviewSession?.remainingCount ?? cards.count) left",
+                    // 用本地队列长度，不用 reviewSession.remainingCount —— 后者是
+                    // 进入会话时服务端给的一次性快照。Learn 模式只在队列清空时才
+                    // 重新拉取，中间每次评分都不刷新，于是这个数字整场不动。
+                    // cards 是活的：毕业的卡出队（数字 -1），没毕业的卡回到队尾
+                    // （数字不变），正好就是"还剩几张要学会"。
+                    progressText: "\(cards.count) left",
                     gradePreviews: gradePreviews,
                     resetToken: reviewStep,
                     onClose: onClose,
